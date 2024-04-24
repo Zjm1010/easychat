@@ -10,3 +10,7 @@ mybatis-plus:
   #    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   mapper-locations:
     - classpath*:mapper/**/*.xml
+
+connection-server:
+  url: https://api.moonshot.cn/v1/chat/completions
+  key: Bearer sk-1b3Y3QnAyTz8SsMCznVL5HFVFyqwtEE6vKoxvgdMXirTgD1Y

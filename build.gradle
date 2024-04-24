@@ -20,7 +20,7 @@ repositories {
 	mavenCentral()
 	maven {
 		allowInsecureProtocol = true
-		url = 'http://maven.aliyun.com/repository/public'
+		url = 'http://maven.aliyun.com/nexus/content/groups/public/'
 	}
 
 }
@@ -40,7 +40,7 @@ dependencies {
 	implementation 'commons-io:commons-io:2.2'
 	implementation 'commons-collections:commons-collections:3.2.2'
 	implementation 'org.apache.httpcomponents:httpclient:4.5.14'
-
+	implementation 'com.google.code.gson:gson:2.8.9'
 //    implementation  files('lib/license-sdk-1.0.1.jar')
 }
 

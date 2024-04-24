@@ -14,7 +14,7 @@ import javax.net.ssl.SSLContext;
 
 public class HttpsWithoutSSL {
 
-    private static CloseableHttpClient createHttpClientWithSSLVerificationDisabled() throws Exception {
+    public static CloseableHttpClient createHttpClientWithSSLVerificationDisabled() throws Exception {
         SSLContext sslContext = SSLContexts.custom()
                 .loadTrustMaterial(new TrustSelfSignedStrategy())
                 .build();
