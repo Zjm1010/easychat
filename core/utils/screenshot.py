@@ -1,4 +1,4 @@
-from pillow import ImageGrab
+from PIL import ImageGrab
 
 from core.utils.config_manager import ConfigManager
 
