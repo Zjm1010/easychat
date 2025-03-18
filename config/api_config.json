@@ -1,0 +1,14 @@
+{
+  "apis": [
+    {
+      "name": "deepseek_v1",
+      "url": "https://api.deepseek.com/v1/ask",
+      "description": "DeepSeek API Version 1"
+    },
+    {
+      "name": "deepseek_v2",
+      "url": "https://api.deepseek.com/v2/ask",
+      "description": "DeepSeek API Version 2"
+    }
+  ]
+}

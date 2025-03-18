@@ -1,0 +1,6 @@
+{
+  "api_key": "your_api_key_here",
+  "enable_deep_think": true,
+  "enable_network_search": false,
+  "selected_api": "deepseek_v1"
+}
