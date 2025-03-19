@@ -7,10 +7,11 @@ from PyQt5.QtWidgets import (
 )
 
 class ConfigWindow(QWidget):
-    def __init__(self, config_path='config/config.json'):
+    def __init__(self, config_path='config/config.json', qss_path='ui/styles/config_style.qss'):
         super().__init__()
         self.config_path = config_path
         self.config = self.load_config()
+        self.qss_path = qss_path
         self.initUI()
 
     def initUI(self):
@@ -29,7 +30,9 @@ class ConfigWindow(QWidget):
 
         # 快捷键设置
         self.shortcut_label = QLabel('Shortcut:', self)
-        self.shortcut_input = QKeySequenceEdit(QKeySequence(self.config.get('shortcut', 'Ctrl+Shift+S')), self)
+        self.shortcut_input = QKeySequenceEdit(
+            QKeySequence(self.config.get('shortcut', 'Ctrl+Shift+S')), self
+        )
         layout.addWidget(self.shortcut_label)
         layout.addWidget(self.shortcut_input)
 
@@ -50,6 +53,9 @@ class ConfigWindow(QWidget):
 
         # 设置布局
         self.setLayout(layout)
+
+        # 加载并应用 QSS 样式
+        self.apply_stylesheet()
 
     def load_config(self):
         """加载配置文件"""
@@ -86,3 +92,15 @@ class ConfigWindow(QWidget):
             'deep_think': self.deep_think_checkbox.isChecked(),
             'network_search': self.network_search_checkbox.isChecked()
         }
+
+    def apply_stylesheet(self):
+        """读取并应用 QSS 样式表"""
+        if os.path.exists(self.qss_path):
+            try:
+                with open(self.qss_path, 'r', encoding='utf-8') as f:
+                    stylesheet = f.read()
+                self.setStyleSheet(stylesheet)
+            except Exception as e:
+                QMessageBox.warning(self, '样式加载错误', f'无法加载 QSS 文件: {str(e)}')
+        else:
+            QMessageBox.warning(self, '样式文件缺失', f'未找到 QSS 文件: {self.qss_path}')

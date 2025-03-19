@@ -12,17 +12,10 @@ def show_window():
     window.show()
     window.activateWindow()  # 激活窗口
 
-
-def open_config_window(self):
-    """打开配置窗口"""
-    self.config_window = ConfigWindow()
-    self.config_window.show()
-
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyleSheet(load_stylesheet())  # 加载样式表
     window = MainWindow()
     keyboard.add_hotkey('ctrl+shift+s', show_window)
-
     window.show()
     sys.exit(app.exec_())

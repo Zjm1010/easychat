@@ -1,0 +1,56 @@
+QWidget {
+    background-color: #f0f0f0;
+}
+
+/* 标签文字颜色 */
+QLabel {
+    color: #000000;
+}
+
+/* 输入框和快捷键编辑框的基础样式 */
+QLineEdit, QKeySequenceEdit {
+    padding: 5px;
+    border: 2px solid #ccc;
+    border-radius: 5px;
+    background-color: #ffffff;
+}
+
+.QLineEdit, .QKeySequenceEdit {
+    color: #000000; /* 黑色 */
+}
+
+/* 输入框和快捷键编辑框获得焦点时的样式 */
+QLineEdit:focus, QKeySequenceEdit:focus {
+    border-color: #0078d7;
+    box-shadow: 0 0 5px #0078d7;
+
+}
+
+QCheckBox::indicator {
+    border: 2px solid #cccccc;
+    background-color: #ffffff;
+}
+QCheckBox::indicator:checked {
+    border-color: #000000; /* 仅修改勾选状态的边框颜色 */
+    background-color: #000333;
+}
+
+/* 复选框文字颜色 */
+QCheckBox {
+    color: #333333;
+}
+
+/* 按钮的基础样式 */
+QPushButton {
+    background-color: #0078d7;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+/* 按钮悬停时的样式 */
+QPushButton:hover {
+    background-color: #005a9e;
+}

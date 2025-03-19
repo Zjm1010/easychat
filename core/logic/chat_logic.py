@@ -6,13 +6,16 @@ class DeepSeekLogic:
     def __init__(self):
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load_config()
-        self.api = DeepSeekAPI(self.config['api_key'], self.config['selected_api'])
+        self.api = DeepSeekAPI(self.config['api_key'], self.config['base_url'])
+        self.capture = None
 
     def capture_and_ask(self):
-        image_path = screenshot.capture_screenshot()
         response = self.api.ask(
-            image_path,
+            self.capture,
             deep_think=self.config['enable_deep_think'],
             network_search=self.config['enable_network_search']
         )
         return response
+
+    def set_capture(self, capture):
+        self.capture = capture
