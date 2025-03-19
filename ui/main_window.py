@@ -1,21 +1,28 @@
 import os
 from idlelib.help import HelpWindow
 
+
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QMainWindow, QLabel, QPushButton, QVBoxLayout, QWidget, QAction, QTextEdit, QHBoxLayout, \
-    QGridLayout, QMessageBox, QGroupBox, QSizePolicy
+    QMessageBox, QGroupBox, QSizePolicy
+
 from core.logic.chat_logic import DeepSeekLogic
-from core.utils.screenshot import screenshot
+from core.utils.screenshot import DynamicScreenshot
 from ui.widgets.config_window import ConfigWindow
 
 
 class MainWindow(QMainWindow):
+    screenshot_preview = None
+
     def __init__(self, qss_path='ui/styles/main_style.qss'):
         super().__init__()
         self.qss_path = qss_path
         self.take_screenshot = None
         self.initUI()
         self.logic = DeepSeekLogic()
+        self.screenshot_button.clicked.connect(self.start_shortcut)
+        self.screenshot_preview.mousePressEvent = self.on_preview_click
 
     def initUI(self):
         self.setWindowTitle("EasyChat")
@@ -26,6 +33,14 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout()
         main_widget.setLayout(main_layout)
+
+        #创建菜单
+        menubar = self.menuBar()
+        settings_action = QAction("设置", self)
+        help_action = QAction("帮助", self)
+        menubar.addAction(settings_action)
+        menubar.addAction(help_action)
+        settings_action.triggered.connect(self.open_config_window)
 
         # 顶部区域：对话返回框 + 截图回显框
         top_layout = QHBoxLayout()
@@ -88,7 +103,7 @@ class MainWindow(QMainWindow):
 
     ##开始划屏截图
     def start_shortcut(self):
-        DeepSeekLogic.set_capture(screenshot().capture_screenshot())
+        self.screenshot_window = DynamicScreenshot(self.on_screenshot_done)
 
     def apply_stylesheet(self):
         """读取并应用 QSS 样式表"""
@@ -101,3 +116,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, '样式加载错误', f'无法加载 QSS 文件: {str(e)}')
         else:
             QMessageBox.warning(self, '样式文件缺失', f'未找到 QSS 文件: {self.qss_path}')
+
+    def on_screenshot_done(self, filename):
+        pixmap = QPixmap(filename)
+        self.screenshot_preview.setPixmap(pixmap.scaled(40, 40))  # 更新预览图[5](@ref)
+        self.result_label.setText(f"截图已保存：{filename}")  # 显示保存信息
+
+    def on_preview_click(self, event):
+        if self.screenshot_window:
+            self.screenshot_window.root.deiconify()  # 点击预览图重新显示截图窗口[5](@ref)

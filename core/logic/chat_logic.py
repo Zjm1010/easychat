@@ -1,5 +1,5 @@
 from core.api.deepseek_api import DeepSeekAPI
-from core.utils.screenshot import screenshot
+# from core.utils.screenshot import screenshot
 from core.utils.config_manager import ConfigManager
 
 class DeepSeekLogic:
