@@ -21,8 +21,8 @@ class MainWindow(QMainWindow):
         self.take_screenshot = None
         self.initUI()
         self.logic = DeepSeekLogic()
-        self.screenshot_button.clicked.connect(self.start_shortcut)
         self.screenshot_preview.mousePressEvent = self.on_preview_click
+        self.dynamic_screenshot = DynamicScreenshot()
 
     def initUI(self):
         self.setWindowTitle("EasyChat")
@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
 
     ##开始划屏截图
     def start_shortcut(self):
-        self.screenshot_window = DynamicScreenshot(self.on_screenshot_done)
+        self.screenshot_window = self.dynamic_screenshot.push_screenshot()
 
     def apply_stylesheet(self):
         """读取并应用 QSS 样式表"""
