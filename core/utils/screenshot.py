@@ -1,5 +1,6 @@
 import tkinter as tk
 from datetime import datetime
+import os
 
 import pyautogui
 
@@ -28,6 +29,9 @@ class DynamicScreenshot:
         self.canvas.bind('<ButtonRelease-1>', self.on_end)
         self.start_pos = None
         self.end_pos = None
+        
+        # Fixed filename for screenshot
+        self.screenshot_filename = "screenshot.png"
 
     def push_screenshot(self):
         self.root.mainloop()
@@ -59,11 +63,16 @@ class DynamicScreenshot:
             x1, y1 = min(self.start_pos[0], self.end_pos[0]), min(self.start_pos[1], self.end_pos[1])
             x2, y2 = max(self.start_pos[0], self.end_pos[0]), max(self.start_pos[1], self.end_pos[1])
             region = (x1, y1, x2 - x1, y2 - y1)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"screenshot_{timestamp}.png"  # 动态生成文件名
+            
+            # Delete old screenshot if it exists
+            if os.path.exists(self.screenshot_filename):
+                os.remove(self.screenshot_filename)
+                print(f"已删除旧截图：{self.screenshot_filename}")
+            
+            # Save new screenshot
             screenshot = pyautogui.screenshot(region=region)
-            screenshot.save(filename)
-            print(f"截图已保存为：{filename}")
+            screenshot.save(self.screenshot_filename)
+            print(f"截图已保存为：{self.screenshot_filename}")
         except Exception as e:
             print(f"截图失败：{str(e)}")
         finally:
