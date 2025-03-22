@@ -52,12 +52,29 @@ class MainWindow(QMainWindow):
         # 独立截图回显区域
         screenshot_widget = QGroupBox("预览", self)
         screenshot_layout = QVBoxLayout()
+        
+        # Add close button
+        close_button = QPushButton("×", self)
+        close_button.setObjectName("preview_close_button")
+        close_button.setFixedSize(20, 20)
+        close_button.clicked.connect(self.clear_preview)
+        
+        # Create a container for the preview and close button
+        preview_container = QWidget()
+        preview_container_layout = QHBoxLayout()
+        preview_container_layout.setContentsMargins(0, 0, 0, 0)
+        preview_container_layout.setSpacing(0)
+        
         self.screenshot_preview = QLabel(self)
         self.screenshot_preview.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         self.screenshot_preview.setFixedSize(40, 40)  # 统一尺寸
-        screenshot_layout.addWidget(self.screenshot_preview)
+        preview_container_layout.addWidget(self.screenshot_preview)
+        preview_container_layout.addWidget(close_button, alignment=Qt.AlignRight | Qt.AlignTop)
+        preview_container.setLayout(preview_container_layout)
+        
+        screenshot_layout.addWidget(preview_container)
         screenshot_widget.setLayout(screenshot_layout)
-        screenshot_widget.setFixedSize(200,100)
+        screenshot_widget.setFixedSize(140,100)
         main_layout.addWidget(screenshot_widget, stretch=0)
 
         # 中间区域：对话输入框 + 发送/截图按钮组
@@ -73,7 +90,7 @@ class MainWindow(QMainWindow):
         self.screenshot_button = QPushButton("划屏截图", self)
         self.screenshot_button.clicked.connect(self.start_shortcut)
         button_group.addWidget(self.screenshot_button)
-        self.input_text_edit.setFixedHeight(100)  # 固定输入框高度[3](@ref)
+        self.input_text_edit.setFixedHeight(100)  # 固定输入框高度
 
         main_layout.addLayout(input_layout, 3)  # 占3份空间，确保输入框区域更大
         input_layout.addLayout(button_group)  # 将按钮组添加到输入框下方
@@ -89,8 +106,30 @@ class MainWindow(QMainWindow):
 
     ##发送截图(若有)/问题
     def on_button_click(self):
-        response = self.logic.capture_and_ask()
-        self.result_label.setText(response.get('answer', 'No answer found'))  # 修复未定义标签[6](@ref)
+        # Get text from input window
+        message = self.input_text_edit.toPlainText()
+        
+        #若目录下存在screenshot.png
+        if os.path.exists("screenshot.png"):
+            self.logic.set_capture("screenshot.png")
+        else:
+            self.logic.set_capture(None)
+
+        response = self.logic.capture_and_ask(message)
+        
+        # Display user message and response in chat history
+        self.chat_history.append(f"用户: {message}")
+        self.chat_history.append(f"助手: {response.get('answer', 'No answer found')}\n")
+        
+        # Scroll to the bottom of chat history
+        self.chat_history.verticalScrollBar().setValue(
+            self.chat_history.verticalScrollBar().maximum()
+        )
+        
+        self.logic.remove_capture()
+        
+        # Clear input window after sending
+        self.input_text_edit.clear()
 
     ##打开配置窗口
     def open_config_window(self):
@@ -104,7 +143,7 @@ class MainWindow(QMainWindow):
     ##开始划屏截图
     def start_shortcut(self):
         # Create a new instance each time
-        self.dynamic_screenshot = DynamicScreenshot()
+        self.dynamic_screenshot = DynamicScreenshot(self)
         self.dynamic_screenshot.push_screenshot()
         # Update preview after screenshot is taken
         if os.path.exists(self.dynamic_screenshot.screenshot_filename):
@@ -124,9 +163,15 @@ class MainWindow(QMainWindow):
 
     def on_screenshot_done(self, filename):
         pixmap = QPixmap(filename)
-        self.screenshot_preview.setPixmap(pixmap.scaled(40, 40))  # 更新预览图[5](@ref)
+        self.screenshot_preview.setPixmap(pixmap.scaled(40, 40))  # 更新预览图
         self.result_label.setText(f"截图已保存：{filename}")  # 显示保存信息
 
     def on_preview_click(self, event):
-        if self.dynamic_screenshot and self.dynamic_screenshot.root:
-            self.dynamic_screenshot.root.deiconify()  # 点击预览图重新显示截图窗口[5](@ref)
+        print("TO DO")
+        # if self.dynamic_screenshot and self.dynamic_screenshot.root:
+        #     self.dynamic_screenshot.root.deiconify()  # 点击预览图重新显示截图窗口
+
+    def clear_preview(self):
+        self.screenshot_preview.clear()
+        self.result_label.setText("")
+        self.logic.remove_capture()

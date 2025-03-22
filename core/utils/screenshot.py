@@ -1,11 +1,12 @@
 import tkinter as tk
-from datetime import datetime
 import os
 
 import pyautogui
 
+
 class DynamicScreenshot:
-    def __init__(self):
+    def __init__(self, main_window):
+        self.main_window = main_window
         self.root = tk.Tk()
         self.root.attributes('-alpha', 0.3)  # 设置窗口透明度
         self.root.attributes('-fullscreen', True)
@@ -73,6 +74,7 @@ class DynamicScreenshot:
             screenshot = pyautogui.screenshot(region=region)
             screenshot.save(self.screenshot_filename)
             print(f"截图已保存为：{self.screenshot_filename}")
+
         except Exception as e:
             print(f"截图失败：{str(e)}")
         finally:
