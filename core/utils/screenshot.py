@@ -8,23 +8,28 @@ class DynamicScreenshot:
         self.root = tk.Tk()
         self.root.attributes('-alpha', 0.3)  # 设置窗口透明度
         self.root.attributes('-fullscreen', True)
+        self.root.attributes('-topmost', True)
 
         # 鼠标事件绑定标志位
         self.is_drawing = True
         screen_width = self.root.winfo_screenwidth()
-        #print(screenWidth)
         screen_height = self.root.winfo_screenheight()
-        self.canvas = tk.Canvas(self.root, bg='grey', width=screen_width, height=screen_height)
+        
+        # Create main canvas with dark background
+        self.canvas = tk.Canvas(self.root, bg='black', width=screen_width, height=screen_height)
         self.canvas.pack()
+        
+        # Create a transparent rectangle for the selection area
+        self.selection_rect = self.canvas.create_rectangle(0, 0, 0, 0, fill='white', stipple='gray50')
+        
         # 鼠标事件绑定
-        self.canvas.bind('<Button-1>', self.on_start)  # 完整事件名称
+        self.canvas.bind('<Button-1>', self.on_start)
         self.canvas.bind('<B1-Motion>', self.on_drag)
         self.canvas.bind('<ButtonRelease-1>', self.on_end)
         self.start_pos = None
         self.end_pos = None
 
     def push_screenshot(self):
-        super().__init__()
         self.root.mainloop()
         print("状态改变")
 
@@ -34,14 +39,14 @@ class DynamicScreenshot:
             return
         print("start drawing")
         self.start_pos = (event.x, event.y)
-        self.canvas.coords('rect', self.start_pos[0], self.start_pos[1],
+        self.canvas.coords(self.selection_rect, self.start_pos[0], self.start_pos[1],
                           self.start_pos[0], self.start_pos[1])
 
     def on_drag(self, event):
         if not self.is_drawing:
             return
         self.end_pos = (event.x, event.y)
-        self.canvas.coords('rect', min(self.start_pos[0], self.end_pos[0]),
+        self.canvas.coords(self.selection_rect, min(self.start_pos[0], self.end_pos[0]),
                           min(self.start_pos[1], self.end_pos[1]),
                           max(self.start_pos[0], self.end_pos[0]),
                           max(self.start_pos[1], self.end_pos[1]))
@@ -64,3 +69,11 @@ class DynamicScreenshot:
         finally:
             self.is_drawing = False
             self.root.after(100, lambda: setattr(self, 'is_drawing', False))  # 延迟重置状态
+
+    def screenshot_mask(self):
+        self.root.attributes('-alpha', 0.3)  # 设置窗口透明度
+        self.root.attributes('-fullscreen', True)
+        self.root.attributes('-topmost', True)
+        self.root.attributes('-transparentcolor', 'grey')
+        self.root.attributes('-transparent', True)
+
