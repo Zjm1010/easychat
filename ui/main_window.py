@@ -11,7 +11,6 @@ from core.logic.chat_logic import DeepSeekLogic
 from core.utils.screenshot import DynamicScreenshot
 from ui.widgets.config_window import ConfigWindow
 
-
 class MainWindow(QMainWindow):
     screenshot_preview = None
 
