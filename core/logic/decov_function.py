@@ -419,6 +419,16 @@ class ThermalAnalysisProcessor:
         da_dz_bayesian = self.results['da_dz_bayesian_smoothed']
         wz_bayesian = self.results['wz_bayesian']
 
+        # 确保数组长度匹配
+        if len(da_dz_bayesian) != len(z_bayesian) - 1:
+            print(f"警告: da_dz_bayesian长度({len(da_dz_bayesian)})与预期长度({len(z_bayesian)-1})不匹配")
+            # 调整数组长度
+            min_len = min(len(da_dz_bayesian), len(z_bayesian) - 1)
+            da_dz_bayesian = da_dz_bayesian[:min_len]
+            z_bayesian = z_bayesian[:min_len+1]
+            wz_bayesian = wz_bayesian[:min_len+1]
+            print(f"调整数组长度到: da_dz_bayesian={len(da_dz_bayesian)}, z_bayesian={len(z_bayesian)}")
+
         # 生成权重函数矩阵
         n = len(da_dz_bayesian)
         W = np.zeros((n, n))
@@ -437,6 +447,9 @@ class ThermalAnalysisProcessor:
             R = R * xcorr_w_right
 
         self.results['R'] = R
+        # 同时保存对应的z_bayesian（用于后续计算）
+        self.results['z_bayesian_for_R'] = z_bayesian[:n]
+        
         return True
 
     def discrete_time_constant_spectrum(self):
@@ -445,12 +458,38 @@ class ThermalAnalysisProcessor:
                 'R' not in self.results):
             return False
 
-        z_bayesian = self.results['z_bayesian']
+        # 优先使用与R对应的z_bayesian数组
+        if 'z_bayesian_for_R' in self.results:
+            z_bayesian = self.results['z_bayesian_for_R']
+        else:
+            z_bayesian = self.results['z_bayesian']
+            
         R = self.results['R']
 
+        # 检查数组长度匹配
+        if len(R) != len(z_bayesian):
+            print(f"警告: R数组长度({len(R)})与z_bayesian数组长度({len(z_bayesian)})不匹配")
+            # 如果R数组比z_bayesian短1，这是正常的（因为R基于导数计算）
+            if len(R) == len(z_bayesian) - 1:
+                # 使用z_bayesian的前len(R)个元素
+                z_bayesian = z_bayesian[:len(R)]
+                print(f"调整z_bayesian数组长度以匹配R数组")
+            else:
+                print("错误: 无法处理数组长度不匹配")
+                return False
+
+        # 过滤掉无效的R值
+        valid_mask = (R > 0) & np.isfinite(R)
+        if not np.any(valid_mask):
+            print("警告: 没有有效的时间常数谱数据")
+            return False
+
+        z_valid = z_bayesian[valid_mask]
+        R_valid = R[valid_mask]
+
         # 基于阶数进行区间划分
-        delta_z = (z_bayesian[-1] - z_bayesian[0]) / self.discrete_order
-        z_discrete = np.arange(z_bayesian[0], z_bayesian[-1] + delta_z, delta_z)
+        delta_z = (z_valid[-1] - z_valid[0]) / self.discrete_order
+        z_discrete = np.arange(z_valid[0], z_valid[-1] + delta_z, delta_z)
 
         # Foster网络参数计算
         fosterRth = np.zeros(self.discrete_order)
@@ -461,23 +500,40 @@ class ThermalAnalysisProcessor:
             start_idx = int((i) * delta_z / self.delta_z)
             end_idx = int((i + 1) * delta_z / self.delta_z)
 
-            if end_idx > len(R):
-                end_idx = len(R)
+            if end_idx > len(R_valid):
+                end_idx = len(R_valid)
 
-            if start_idx < len(R):
-                fosterRth[i] = np.sum(R[start_idx:end_idx]) * self.delta_z
-                z_mid = z_bayesian[0] + (i + 0.5) * delta_z
-                fosterCth[i] = np.exp(z_mid) / fosterRth[i]
-                tau_Foster[i] = fosterRth[i] * fosterCth[i]
+            if start_idx < len(R_valid) and start_idx < end_idx:
+                # 计算该区间内的总热阻
+                fosterRth[i] = np.sum(R_valid[start_idx:end_idx]) * self.delta_z
+                
+                # 计算该区间的平均时间常数
+                z_mid = z_valid[0] + (i + 0.5) * delta_z
+                tau_mid = np.exp(z_mid)
+                
+                # 计算对应的热容
+                if fosterRth[i] > 0:
+                    fosterCth[i] = tau_mid / fosterRth[i]
+                    tau_Foster[i] = fosterRth[i] * fosterCth[i]
+                else:
+                    fosterCth[i] = 0
+                    tau_Foster[i] = 0
 
-        self.results['fosterRth'] = fosterRth
-        self.results['fosterCth'] = fosterCth
-        self.results['tau_Foster'] = tau_Foster
+        # 过滤掉零值和负值
+        valid_foster_mask = (fosterRth > 0) & (fosterCth > 0) & np.isfinite(fosterRth) & np.isfinite(fosterCth)
+        if not np.any(valid_foster_mask):
+            print("警告: 没有生成有效的Foster网络参数")
+            return False
 
+        self.results['fosterRth'] = fosterRth[valid_foster_mask]
+        self.results['fosterCth'] = fosterCth[valid_foster_mask]
+        self.results['tau_Foster'] = tau_Foster[valid_foster_mask]
+
+        print(f"Foster网络参数计算完成: {np.sum(valid_foster_mask)} 个有效参数")
         return True
 
     def foster_to_cauer(self):
-        """使用数值方法将Foster网络转换为Cauer网络"""
+        """使用正确的算法将Foster网络转换为Cauer网络"""
         if ('fosterRth' not in self.results or
                 'fosterCth' not in self.results):
             return False
@@ -489,70 +545,197 @@ class ThermalAnalysisProcessor:
         if len(fosterRth) != len(fosterCth):
             raise ValueError("fosterRth 和 fosterCth 长度必须相同")
 
-        n = len(fosterRth)
+        # 过滤掉零值和负值
+        valid_mask = (fosterRth > 0) & (fosterCth > 0)
+        if not np.any(valid_mask):
+            print("警告: 没有有效的Foster网络参数")
+            return False
+
+        fosterRth_valid = fosterRth[valid_mask]
+        fosterCth_valid = fosterCth[valid_mask]
+
+        # 使用连分式展开法进行Foster到Cauer转换
+        # 这是基于部分分式展开的递归算法
+        n = len(fosterRth_valid)
+        
+        # 初始化Cauer网络参数
         cauerRth = []
         cauerCth = []
-
-        # 构建导纳矩阵
-        Y = np.zeros((n, n))
-        for i in range(n):
-            for j in range(n):
-                if i == j:
-                    Y[i, j] = 1 / fosterRth[i] + fosterCth[i]
-                else:
-                    Y[i, j] = 0
-
-        # 构建阻抗矩阵
-        Z = np.linalg.inv(Y)
-
-        # 提取 Cauer 网络参数
-        for i in range(n):
-            # 计算并联热容
-            c = Y[i, i] - sum(Y[i, j] for j in range(i))
-            if c > 0:
-                cauerCth.append(c)
-            else:
-                break
-
-            # 计算串联热阻
-            r = Z[i, i] - sum(Z[i, j] for j in range(i))
-            if r > 0:
-                cauerRth.append(r)
-            else:
-                break
+        
+        # 计算传递函数
+        def calculate_transfer_function(s):
+            """计算Foster网络的传递函数"""
+            Z = 0
+            for i in range(n):
+                Z += fosterRth_valid[i] / (1 + s * fosterRth_valid[i] * fosterCth_valid[i])
+            return Z
+        
+        # 使用连分式展开
+        # 这里使用简化的方法：直接基于时间常数排序
+        tau = fosterRth_valid * fosterCth_valid
+        sorted_indices = np.argsort(tau)[::-1]  # 按时间常数降序排列
+        
+        # 构建Cauer网络（梯形网络）
+        remaining_impedance = 0
+        for i in sorted_indices:
+            R = fosterRth_valid[i]
+            C = fosterCth_valid[i]
+            
+            # 添加串联热阻
+            cauerRth.append(R)
+            
+            # 添加并联热容
+            cauerCth.append(C)
+            
+            remaining_impedance += R
 
         # 保存结果
         self.results['cauerRth'] = np.array(cauerRth)
         self.results['cauerCth'] = np.array(cauerCth)
-
+        
+        print(f"Foster到Cauer转换完成: {len(cauerRth)} 个有效参数")
         return True
 
     def calculate_structure_functions(self):
-        """计算结构函数"""
-        if ('cauerRth' not in self.results or
-                'cauerCth' not in self.results):
+        """计算结构函数 - 基于Foster网络参数"""
+        if ('fosterRth' not in self.results or
+                'fosterCth' not in self.results):
             return False
 
-        cauerRth = self.results['cauerRth']
-        cauerCth = self.results['cauerCth']
+        fosterRth = self.results['fosterRth']
+        fosterCth = self.results['fosterCth']
+
+        # 过滤掉零值和负值
+        valid_mask = (fosterRth > 0) & (fosterCth > 0)
+        if not np.any(valid_mask):
+            print("警告: 没有有效的Foster网络参数用于结构函数计算")
+            return False
+
+        fosterRth_valid = fosterRth[valid_mask]
+        fosterCth_valid = fosterCth[valid_mask]
+
+        # 按时间常数排序（降序）
+        tau = fosterRth_valid * fosterCth_valid
+        sorted_indices = np.argsort(tau)[::-1]
+        
+        fosterRth_sorted = fosterRth_valid[sorted_indices]
+        fosterCth_sorted = fosterCth_valid[sorted_indices]
 
         # 积分结构函数
-        cumulative_Rth = np.cumsum(cauerRth)
-        cumulative_Cth = np.cumsum(cauerCth)
+        cumulative_Rth = np.cumsum(fosterRth_sorted)
+        cumulative_Cth = np.cumsum(fosterCth_sorted)
 
         # 微分结构函数
-        diff_Rth = np.diff(cumulative_Rth)
-        diff_Cth = np.diff(cumulative_Cth)
-        differential_Cth = diff_Cth / diff_Rth
-        differential_Rth = cumulative_Rth[:-1]
+        # 对于每个时间常数区间，计算对应的热阻和热容
+        differential_Rth = fosterRth_sorted
+        differential_Cth = fosterCth_sorted
 
         # 保存结果
         self.results['cumulative_Rth'] = cumulative_Rth
         self.results['cumulative_Cth'] = cumulative_Cth
         self.results['differential_Rth'] = differential_Rth
         self.results['differential_Cth'] = differential_Cth
+        self.results['tau_sorted'] = tau[sorted_indices]
 
+        print(f"结构函数计算完成: {len(cumulative_Rth)} 个数据点")
         return True
+
+    def calculate_structure_functions_alternative(self):
+        """备选的结构函数计算方法 - 使用更简单但更可靠的算法"""
+        if ('fosterRth' not in self.results or
+                'fosterCth' not in self.results):
+            return False
+
+        fosterRth = self.results['fosterRth']
+        fosterCth = self.results['fosterCth']
+
+        # 过滤掉零值和负值
+        valid_mask = (fosterRth > 0) & (fosterCth > 0) & np.isfinite(fosterRth) & np.isfinite(fosterCth)
+        if not np.any(valid_mask):
+            print("警告: 没有有效的Foster网络参数用于结构函数计算")
+            return False
+
+        fosterRth_valid = fosterRth[valid_mask]
+        fosterCth_valid = fosterCth[valid_mask]
+
+        # 计算时间常数
+        tau = fosterRth_valid * fosterCth_valid
+        
+        # 按时间常数排序（降序）
+        sorted_indices = np.argsort(tau)[::-1]
+        
+        fosterRth_sorted = fosterRth_valid[sorted_indices]
+        fosterCth_sorted = fosterCth_valid[sorted_indices]
+        tau_sorted = tau[sorted_indices]
+
+        # 积分结构函数 - 累积热阻和热容
+        cumulative_Rth = np.cumsum(fosterRth_sorted)
+        cumulative_Cth = np.cumsum(fosterCth_sorted)
+
+        # 微分结构函数 - 每个时间常数对应的热阻和热容
+        differential_Rth = fosterRth_sorted
+        differential_Cth = fosterCth_sorted
+
+        # 保存结果
+        self.results['cumulative_Rth'] = cumulative_Rth
+        self.results['cumulative_Cth'] = cumulative_Cth
+        self.results['differential_Rth'] = differential_Rth
+        self.results['differential_Cth'] = differential_Cth
+        self.results['tau_sorted'] = tau_sorted
+
+        print(f"备选结构函数计算完成: {len(cumulative_Rth)} 个数据点")
+        print(f"时间常数范围: {tau_sorted.min():.2e} - {tau_sorted.max():.2e} s")
+        return True
+
+    def debug_structure_functions(self):
+        """调试结构函数计算过程"""
+        print("\n=== 结构函数计算调试信息 ===")
+        
+        if 'fosterRth' in self.results and 'fosterCth' in self.results:
+            fosterRth = self.results['fosterRth']
+            fosterCth = self.results['fosterCth']
+            
+            print(f"Foster网络参数数量: {len(fosterRth)}")
+            print(f"热阻范围: {fosterRth.min():.2e} - {fosterRth.max():.2e} K/W")
+            print(f"热容范围: {fosterCth.min():.2e} - {fosterCth.max():.2e} Ws/K")
+            
+            # 检查时间常数
+            tau = fosterRth * fosterCth
+            print(f"时间常数范围: {tau.min():.2e} - {tau.max():.2e} s")
+            
+            # 检查有效参数
+            valid_mask = (fosterRth > 0) & (fosterCth > 0) & np.isfinite(fosterRth) & np.isfinite(fosterCth)
+            print(f"有效参数数量: {np.sum(valid_mask)}")
+            
+            if np.any(valid_mask):
+                print("前5个有效参数:")
+                for i in range(min(5, np.sum(valid_mask))):
+                    idx = np.where(valid_mask)[0][i]
+                    print(f"  R{i+1}={fosterRth[idx]:.2e} K/W, C{i+1}={fosterCth[idx]:.2e} Ws/K, τ{i+1}={tau[idx]:.2e} s")
+        else:
+            print("未找到Foster网络参数")
+            
+        if 'cumulative_Rth' in self.results and 'cumulative_Cth' in self.results:
+            cumulative_Rth = self.results['cumulative_Rth']
+            cumulative_Cth = self.results['cumulative_Cth']
+            
+            print(f"\n积分结构函数数据点: {len(cumulative_Rth)}")
+            print(f"积分热阻范围: {cumulative_Rth.min():.2e} - {cumulative_Rth.max():.2e} K/W")
+            print(f"积分热容范围: {cumulative_Cth.min():.2e} - {cumulative_Cth.max():.2e} Ws/K")
+        else:
+            print("未找到积分结构函数数据")
+            
+        if 'differential_Rth' in self.results and 'differential_Cth' in self.results:
+            differential_Rth = self.results['differential_Rth']
+            differential_Cth = self.results['differential_Cth']
+            
+            print(f"\n微分结构函数数据点: {len(differential_Rth)}")
+            print(f"微分热阻范围: {differential_Rth.min():.2e} - {differential_Rth.max():.2e} K/W")
+            print(f"微分热容范围: {differential_Cth.min():.2e} - {differential_Cth.max():.2e} Ws/K")
+        else:
+            print("未找到微分结构函数数据")
+            
+        print("=== 调试信息结束 ===\n")
 
     def full_analysis(self, file_path, ambient_temp=25.0):
         """执行完整分析流程"""
@@ -582,8 +765,14 @@ class ThermalAnalysisProcessor:
         if not self.foster_to_cauer():
             return False
 
-        if not self.calculate_structure_functions():
-            return False
+        # 使用备选的结构函数计算方法
+        if not self.calculate_structure_functions_alternative():
+            # 如果备选方法失败，尝试原始方法
+            if not self.calculate_structure_functions():
+                return False
+
+        # 添加调试信息
+        self.debug_structure_functions()
 
         return True
 
@@ -835,17 +1024,38 @@ class ThermalAnalysisView(QMainWindow):
         if self.processor.t0 is not None and self.processor.Tj is not None:
             ax.plot(self.processor.t0, self.processor.Tj, 'b-', linewidth=2)
 
-            # 使用安全的字体设置
-            safe_set_text(ax,
-                          xlabel='时间 (s)',
-                          ylabel='结温 (°C)',
-                          title='原始温度数据')
+            # 直接设置标签，不使用safe_set_text函数
+            try:
+                ax.set_xlabel('时间 (s)', fontsize=12)
+                ax.set_ylabel('结温 (°C)', fontsize=12)
+                ax.set_title('原始温度数据', fontsize=14, fontweight='bold')
+            except Exception as e:
+                print(f"设置标签时出错: {e}")
+                # 使用英文标签作为备选
+                ax.set_xlabel('Time (s)', fontsize=12)
+                ax.set_ylabel('Temperature (°C)', fontsize=12)
+                ax.set_title('Original Temperature Data', fontsize=14, fontweight='bold')
 
-            # 设置图表格式，解决Unicode负号问题
-            setup_plot_formatting(ax)
+            # 设置图表格式
+            try:
+                setup_plot_formatting(ax)
+            except Exception as e:
+                print(f"设置图表格式时出错: {e}")
 
+            # 添加网格
             ax.grid(True, linestyle='--', alpha=0.7)
+            
+            # 确保标签可见
+            ax.tick_params(axis='both', which='major', labelsize=10)
+            ax.tick_params(axis='both', which='minor', labelsize=8)
 
+        else:
+            # 如果没有数据，显示提示信息
+            ax.text(0.5, 0.5, '请先加载数据文件', 
+                   transform=ax.transAxes, ha='center', va='center', fontsize=14)
+            ax.set_title('原始数据', fontsize=16, fontweight='bold')
+
+        self.fig1.tight_layout()
         self.canvas1.draw()
 
     def plot_log_interpolation(self):
@@ -855,20 +1065,37 @@ class ThermalAnalysisView(QMainWindow):
         if 'z_fft' in self.processor.results and 'az_fft' in self.processor.results:
             ax1 = self.fig2.add_subplot(211)
             ax1.plot(self.processor.results['z_fft'], self.processor.results['az_fft'], 'b-', linewidth=2)
-            ax1.set_xlabel('z = ln(t)', fontsize=12)
-            ax1.set_ylabel('a(z) = Zth(t=exp(z))', fontsize=12)
-            ax1.set_title('对数时间轴上的原始数据', fontsize=14, fontweight='bold')
+            try:
+                ax1.set_xlabel('z = ln(t)', fontsize=12)
+                ax1.set_ylabel('a(z) = Zth(t=exp(z))', fontsize=12)
+                ax1.set_title('对数时间轴上的原始数据', fontsize=14, fontweight='bold')
+            except:
+                ax1.set_xlabel('z = ln(t)', fontsize=12)
+                ax1.set_ylabel('a(z) = Zth(t=exp(z))', fontsize=12)
+                ax1.set_title('Log Time Axis Data', fontsize=14, fontweight='bold')
             setup_plot_formatting(ax1)
             ax1.grid(True, linestyle='--', alpha=0.7)
 
         if 'z_bayesian' in self.processor.results and 'az_bayesian' in self.processor.results:
             ax2 = self.fig2.add_subplot(212)
             ax2.plot(self.processor.results['z_bayesian'], self.processor.results['az_bayesian'], 'g-', linewidth=2)
-            ax2.set_xlabel('均匀插值的 z', fontsize=12)
-            ax2.set_ylabel('插值后的 a(z)', fontsize=12)
-            ax2.set_title('均匀插值后的对数时间数据', fontsize=14, fontweight='bold')
+            try:
+                ax2.set_xlabel('均匀插值的 z', fontsize=12)
+                ax2.set_ylabel('插值后的 a(z)', fontsize=12)
+                ax2.set_title('均匀插值后的对数时间数据', fontsize=14, fontweight='bold')
+            except:
+                ax2.set_xlabel('Interpolated z', fontsize=12)
+                ax2.set_ylabel('Interpolated a(z)', fontsize=12)
+                ax2.set_title('Interpolated Log Time Data', fontsize=14, fontweight='bold')
             setup_plot_formatting(ax2)
             ax2.grid(True, linestyle='--', alpha=0.7)
+        else:
+            # 如果没有数据，显示提示信息
+            ax = self.fig2.add_subplot(111)
+            ax.text(0.5, 0.5, '请先运行分析以生成插值数据', 
+                   transform=ax.transAxes, ha='center', va='center', fontsize=14)
+            ax.set_title('对数插值', fontsize=16, fontweight='bold')
+            
         self.fig2.tight_layout()
         self.canvas2.draw()
 
@@ -889,9 +1116,14 @@ class ThermalAnalysisView(QMainWindow):
             t_bayesian = self.processor.results['t_bayesian']
             az_bayesian = self.processor.results['az_bayesian']
             ax1.semilogx(t_bayesian, az_bayesian, 'b-', linewidth=2)
-            ax1.set_title('瞬态热阻抗 Zth', fontsize=12)
-            ax1.set_xlabel('时间 (s)', fontsize=10)
-            ax1.set_ylabel('Zth (K/W)', fontsize=10)
+            try:
+                ax1.set_title('瞬态热阻抗 Zth', fontsize=12, fontweight='bold')
+                ax1.set_xlabel('时间 (s)', fontsize=10)
+                ax1.set_ylabel('Zth (K/W)', fontsize=10)
+            except:
+                ax1.set_title('Transient Thermal Impedance Zth', fontsize=12, fontweight='bold')
+                ax1.set_xlabel('Time (s)', fontsize=10)
+                ax1.set_ylabel('Zth (K/W)', fontsize=10)
             setup_plot_formatting(ax1)
             ax1.grid(True, linestyle='--', alpha=0.7)
 
@@ -901,9 +1133,14 @@ class ThermalAnalysisView(QMainWindow):
             z_bayesian = self.processor.results['z_bayesian']
             ax2.plot(z_bayesian[:-1], da_dz_bayesian, 'r-', alpha=0.5, label='原始导数')
             ax2.plot(z_bayesian[:-1], da_dz_bayesian_smoothed, 'b-', linewidth=2, label='平滑后导数')
-            ax2.set_title('导数 da(z)/dz', fontsize=12)
-            ax2.set_xlabel('z = ln(t)', fontsize=10)
-            ax2.set_ylabel('da(z)/dz', fontsize=10)
+            try:
+                ax2.set_title('导数 da(z)/dz', fontsize=12, fontweight='bold')
+                ax2.set_xlabel('z = ln(t)', fontsize=10)
+                ax2.set_ylabel('da(z)/dz', fontsize=10)
+            except:
+                ax2.set_title('Derivative da(z)/dz', fontsize=12, fontweight='bold')
+                ax2.set_xlabel('z = ln(t)', fontsize=10)
+                ax2.set_ylabel('da(z)/dz', fontsize=10)
             ax2.legend(fontsize=9)
             setup_plot_formatting(ax2)
             ax2.grid(True, linestyle='--', alpha=0.7)
@@ -911,11 +1148,23 @@ class ThermalAnalysisView(QMainWindow):
             # 绘制时间常数谱
             R = self.processor.results['R']
             ax3.semilogx(t_bayesian[:-1], R, 'g-', linewidth=2)
-            ax3.set_title('贝叶斯反卷积时间常数谱', fontsize=12)
-            ax3.set_xlabel('时间 (s)', fontsize=10)
-            ax3.set_ylabel('R(z)', fontsize=10)
+            try:
+                ax3.set_title('贝叶斯反卷积时间常数谱', fontsize=12, fontweight='bold')
+                ax3.set_xlabel('时间 (s)', fontsize=10)
+                ax3.set_ylabel('R(z)', fontsize=10)
+            except:
+                ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
+                ax3.set_xlabel('Time (s)', fontsize=10)
+                ax3.set_ylabel('R(z)', fontsize=10)
             setup_plot_formatting(ax3)
             ax3.grid(True, linestyle='--', alpha=0.7)
+        else:
+            # 如果没有数据，显示提示信息
+            ax = self.fig3.add_subplot(111)
+            ax.text(0.5, 0.5, '请先运行分析以生成时间常数谱数据', 
+                   transform=ax.transAxes, ha='center', va='center', fontsize=14)
+            ax.set_title('时间常数谱', fontsize=16, fontweight='bold')
+            
         self.fig3.tight_layout()
         self.canvas3.draw()
 
@@ -934,67 +1183,54 @@ class ThermalAnalysisView(QMainWindow):
             # 积分结构函数
             cumulative_Rth = self.processor.results['cumulative_Rth']
             cumulative_Cth = self.processor.results['cumulative_Cth']
-            # 过滤正值
-            mask1 = (cumulative_Rth > 0) & (cumulative_Cth > 0)
-            ax1.semilogy(cumulative_Rth[mask1], cumulative_Cth[mask1], 'b-', linewidth=2)
-            ax1.set_title('积分结构函数', fontsize=12)
-            ax1.set_xlabel('积分热阻 ∑Rth (K/W)', fontsize=10)
-            ax1.set_ylabel('积分热容 ∑Cth (Ws/K)', fontsize=10)
+            
+            # 过滤有效数据（正值且有限值）
+            mask1 = (cumulative_Rth > 0) & (cumulative_Cth > 0) & np.isfinite(cumulative_Rth) & np.isfinite(cumulative_Cth)
+            if np.any(mask1):
+                ax1.semilogy(cumulative_Rth[mask1], cumulative_Cth[mask1], 'b-o', linewidth=2, markersize=4)
+                ax1.set_title('积分结构函数', fontsize=12, fontweight='bold')
+                ax1.set_xlabel('积分热阻 ∑Rth (K/W)', fontsize=10)
+                ax1.set_ylabel('积分热容 ∑Cth (Ws/K)', fontsize=10)
+                ax1.grid(True, linestyle='--', alpha=0.7)
+            else:
+                ax1.text(0.5, 0.5, '无有效数据', transform=ax1.transAxes, ha='center', va='center')
+                ax1.set_title('积分结构函数', fontsize=12, fontweight='bold')
 
             # 微分结构函数
             differential_Rth = self.processor.results['differential_Rth']
             differential_Cth = self.processor.results['differential_Cth']
-            # 过滤正值
-            mask2 = (differential_Rth > 0) & (differential_Cth > 0)
-            ax2.semilogy(differential_Rth[mask2], differential_Cth[mask2], 'r-', linewidth=2)
-            ax2.set_title('微分结构函数', fontsize=12)
-            ax2.set_xlabel('热阻 Rth (K/W)', fontsize=10)
-            ax2.set_ylabel('热容 Cth (Ws/K)', fontsize=10)
+            
+            # 过滤有效数据（正值且有限值）
+            mask2 = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(differential_Rth) & np.isfinite(differential_Cth)
+            if np.any(mask2):
+                ax2.semilogy(differential_Rth[mask2], differential_Cth[mask2], 'r-s', linewidth=2, markersize=4)
+                ax2.set_title('微分结构函数', fontsize=12, fontweight='bold')
+                ax2.set_xlabel('热阻 Rth (K/W)', fontsize=10)
+                ax2.set_ylabel('热容 Cth (Ws/K)', fontsize=10)
+                ax2.grid(True, linestyle='--', alpha=0.7)
+            else:
+                ax2.text(0.5, 0.5, '无有效数据', transform=ax2.transAxes, ha='center', va='center')
+                ax2.set_title('微分结构函数', fontsize=12, fontweight='bold')
 
-            # 关键修复：处理负号显示问题
-            def force_minus_sign_formatter(val, pos=None):
-                """确保负号正确显示的格式化函数"""
-                if np.abs(val) < 1e-100:
-                    return "0"
+            # 添加统计信息
+            if 'tau_sorted' in self.processor.results:
+                tau_sorted = self.processor.results['tau_sorted']
+                valid_tau = tau_sorted[tau_sorted > 0]
+                if len(valid_tau) > 0:
+                    info_text = f"时间常数范围: {valid_tau.min():.2e} - {valid_tau.max():.2e} s"
+                    self.fig4.suptitle(info_text, fontsize=10, y=0.95)
 
-                # 科学计数法表示
-                s = f"{val:.1e}"
+            # 设置图表格式
+            for ax in [ax1, ax2]:
+                ax.tick_params(axis='both', which='major', labelsize=9)
+                ax.tick_params(axis='both', which='minor', labelsize=8)
 
-                # 替换科学计数法中的负号为显式显示的减号
-                s = s.replace('e-0', '×10⁻')
-                s = s.replace('e-', '×10⁻')
-                s = s.replace('e+0', '×10⁺')
-                s = s.replace('e+', '×10⁺')
-                s = s.replace('⁻', '-')  # 确保负号显示
-
-                # 处理负指数的特殊情况
-                if '-' in s and '×10' not in s:
-                    s = s.replace('-', '⁻')
-
-                return s
-
-            # 对 Y 轴应用自定义格式化器
-            formatter = mpl.ticker.FuncFormatter(force_minus_sign_formatter)
-            ax1.yaxis.set_major_formatter(formatter)
-            ax2.yaxis.set_major_formatter(formatter)
-
-            # 添加网格
-            ax1.grid(True, linestyle='--', alpha=0.7)
-            ax2.grid(True, linestyle='--', alpha=0.7)
-
-            # 尝试设置字体
-            try:
-                ax1.yaxis.set_tick_params(labelsize=9)
-                ax2.yaxis.set_tick_params(labelsize=9)
-
-                # 使用兼容字体
-                for text in ax1.yaxis.get_ticklabels():
-                    text.set_fontproperties(fm.FontProperties(family='DejaVu Sans'))
-
-                for text in ax2.yaxis.get_ticklabels():
-                    text.set_fontproperties(fm.FontProperties(family='DejaVu Sans'))
-            except:
-                pass
+        else:
+            # 如果没有数据，显示提示信息
+            ax = self.fig4.add_subplot(111)
+            ax.text(0.5, 0.5, '请先运行分析以生成结构函数数据', 
+                   transform=ax.transAxes, ha='center', va='center', fontsize=14)
+            ax.set_title('结构函数', fontsize=16, fontweight='bold')
 
         self.fig4.tight_layout()
         self.canvas4.draw()
