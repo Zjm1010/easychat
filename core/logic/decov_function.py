@@ -625,10 +625,11 @@ class ThermalAnalysisProcessor:
         cumulative_Rth = np.cumsum(fosterRth_sorted)
         cumulative_Cth = np.cumsum(fosterCth_sorted)
 
-        # 微分结构函数
-        # 对于每个时间常数区间，计算对应的热阻和热容
-        differential_Rth = fosterRth_sorted
-        differential_Cth = fosterCth_sorted
+        # 微分结构函数 - 按热阻值排序，确保连接线正确
+        # 按热阻值升序排列，这样绘图时连接线会按照正确的顺序
+        diff_sorted_indices = np.argsort(fosterRth_sorted)
+        differential_Rth = fosterRth_sorted[diff_sorted_indices]
+        differential_Cth = fosterCth_sorted[diff_sorted_indices]
 
         # 保存结果
         self.results['cumulative_Rth'] = cumulative_Rth
@@ -672,9 +673,11 @@ class ThermalAnalysisProcessor:
         cumulative_Rth = np.cumsum(fosterRth_sorted)
         cumulative_Cth = np.cumsum(fosterCth_sorted)
 
-        # 微分结构函数 - 每个时间常数对应的热阻和热容
-        differential_Rth = fosterRth_sorted
-        differential_Cth = fosterCth_sorted
+        # 微分结构函数 - 按热阻值排序，确保连接线正确
+        # 按热阻值升序排列，这样绘图时连接线会按照正确的顺序
+        diff_sorted_indices = np.argsort(fosterRth_sorted)
+        differential_Rth = fosterRth_sorted[diff_sorted_indices]
+        differential_Cth = fosterCth_sorted[diff_sorted_indices]
 
         # 保存结果
         self.results['cumulative_Rth'] = cumulative_Rth
@@ -685,6 +688,7 @@ class ThermalAnalysisProcessor:
 
         print(f"备选结构函数计算完成: {len(cumulative_Rth)} 个数据点")
         print(f"时间常数范围: {tau_sorted.min():.2e} - {tau_sorted.max():.2e} s")
+        print(f"热阻范围: {differential_Rth.min():.2e} - {differential_Rth.max():.2e} K/W")
         return True
 
     def debug_structure_functions(self):
@@ -1192,6 +1196,8 @@ class ThermalAnalysisView(QMainWindow):
                 ax1.set_xlabel('积分热阻 ∑Rth (K/W)', fontsize=10)
                 ax1.set_ylabel('积分热容 ∑Cth (Ws/K)', fontsize=10)
                 ax1.grid(True, linestyle='--', alpha=0.7)
+                # 设置纵坐标最大值为10^65
+                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e65)
             else:
                 ax1.text(0.5, 0.5, '无有效数据', transform=ax1.transAxes, ha='center', va='center')
                 ax1.set_title('积分结构函数', fontsize=12, fontweight='bold')
@@ -1208,6 +1214,8 @@ class ThermalAnalysisView(QMainWindow):
                 ax2.set_xlabel('热阻 Rth (K/W)', fontsize=10)
                 ax2.set_ylabel('热容 Cth (Ws/K)', fontsize=10)
                 ax2.grid(True, linestyle='--', alpha=0.7)
+                # 设置纵坐标最大值为10^65
+                ax2.set_ylim(bottom=ax2.get_ylim()[0], top=1e65)
             else:
                 ax2.text(0.5, 0.5, '无有效数据', transform=ax2.transAxes, ha='center', va='center')
                 ax2.set_title('微分结构函数', fontsize=12, fontweight='bold')
@@ -1234,44 +1242,6 @@ class ThermalAnalysisView(QMainWindow):
 
         self.fig4.tight_layout()
         self.canvas4.draw()
-
-    # def plot_structure_functions(self):
-    #     """绘制结构函数"""
-    #     self.fig4.clear()
-    #
-    #     if ('cumulative_Rth' in self.processor.results and
-    #             'cumulative_Cth' in self.processor.results and
-    #             'differential_Rth' in self.processor.results and
-    #             'differential_Cth' in self.processor.results):
-    #         # 创建两个子图
-    #         ax1 = self.fig4.add_subplot(121)
-    #         ax2 = self.fig4.add_subplot(122)
-    #
-    #         # 积分结构函数
-    #         cumulative_Rth = self.processor.results['cumulative_Rth']
-    #         cumulative_Cth = self.processor.results['cumulative_Cth']
-    #         # 过滤正值
-    #         mask1 = (cumulative_Rth > 0) & (cumulative_Cth > 0)
-    #         ax1.semilogy(cumulative_Rth[mask1], cumulative_Cth[mask1], 'b-', linewidth=2)
-    #         ax1.set_title('积分结构函数', fontsize=12)
-    #         ax1.set_xlabel('积分热阻 ∑Rth (K/W)', fontsize=10)
-    #         ax1.set_ylabel('积分热容 ∑Cth (Ws/K)', fontsize=10)
-    #         setup_plot_formatting(ax1)
-    #         ax1.grid(True, linestyle='--', alpha=0.7)
-    #
-    #         # 微分结构函数
-    #         differential_Rth = self.processor.results['differential_Rth']
-    #         differential_Cth = self.processor.results['differential_Cth']
-    #         # 过滤正值
-    #         mask2 = (differential_Rth > 0) & (differential_Cth > 0)
-    #         ax2.semilogy(differential_Rth[mask2], differential_Cth[mask2], 'r-', linewidth=2)
-    #         ax2.set_title('微分结构函数', fontsize=12)
-    #         ax2.set_xlabel('热阻 Rth (K/W)', fontsize=10)
-    #         ax2.set_ylabel('热容 Cth (Ws/K)', fontsize=10)
-    #         setup_plot_formatting(ax2)
-    #         ax2.grid(True, linestyle='--', alpha=0.7)
-    #     self.fig4.tight_layout()
-    #     self.canvas4.draw()
 
     def foster_to_cauer_numeric(fosterRth, fosterCth):
         """
