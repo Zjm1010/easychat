@@ -1,4 +1,5 @@
 import os
+import statistics
 
 import matplotlib as mpl
 import matplotlib.font_manager as fm
@@ -9,7 +10,7 @@ import sympy as sp
 from matplotlib import ticker
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
-
+from sympy import Poly, symbols
 
 # 配置字体支持
 def setup_fonts():
@@ -154,8 +155,15 @@ def setup_plot_formatting(ax):
         # 如果失败，回退到全局设置
         plt.rcParams['axes.unicode_minus'] = False
 
+
 class ThermalAnalysisProcessor:
-    def __init__(self):
+    def __init__(self, precision='float64'):
+        """
+        初始化热分析处理器
+        
+        Args:
+            precision (str): 计算精度，可选 'float32' 或 'float64'，默认为 'float64'
+        """
         self.t0 = None
         self.Tj = None
         self.Zth_transient = None
@@ -164,6 +172,15 @@ class ThermalAnalysisProcessor:
         self.num_iterations = 500
         self.discrete_order = 45
         self.results = {}
+
+        # 设置计算精度
+        self.precision = precision
+        if precision == 'float32':
+            self.dtype = np.float32
+        else:
+            self.dtype = np.float64
+
+        print(f"热分析处理器初始化完成，计算精度: {precision}")
 
     def load_data(self, file_path):
         """从Excel文件加载数据 - 支持多种格式"""
@@ -186,8 +203,8 @@ class ThermalAnalysisProcessor:
 
             # 提取数据
             if len(df.columns) >= 2:
-                self.t0 = df.iloc[:, 0].values
-                self.Tj = df.iloc[:, 1].values
+                self.t0 = df.iloc[:, 0].values.astype(self.dtype)
+                self.Tj = df.iloc[:, 1].values.astype(self.dtype)
             else:
                 raise ValueError("数据文件至少需要两列：时间和温度")
 
@@ -235,8 +252,8 @@ class ThermalAnalysisProcessor:
                     data = list(csv_reader)
 
                 if len(data) > 0 and len(data[0]) >= 2:
-                    self.t0 = np.array([float(row[0]) for row in data])
-                    self.Tj = np.array([float(row[1]) for row in data])
+                    self.t0 = np.array([float(row[0]) for row in data], dtype=self.dtype)
+                    self.Tj = np.array([float(row[1]) for row in data], dtype=self.dtype)
                     print(f"使用csv模块加载数据: {len(self.t0)} 个数据点")
                     return True
 
@@ -253,8 +270,8 @@ class ThermalAnalysisProcessor:
                             data.append([float(row[0]), float(row[1])])
 
                     if len(data) > 0:
-                        self.t0 = np.array([row[0] for row in data])
-                        self.Tj = np.array([row[1] for row in data])
+                        self.t0 = np.array([row[0] for row in data], dtype=self.dtype)
+                        self.Tj = np.array([row[1] for row in data], dtype=self.dtype)
                         print(f"使用openpyxl加载数据: {len(self.t0)} 个数据点")
                         return True
 
@@ -275,8 +292,8 @@ class ThermalAnalysisProcessor:
                             data.append([float(row[0]), float(row[1])])
 
                     if len(data) > 0:
-                        self.t0 = np.array([row[0] for row in data])
-                        self.Tj = np.array([row[1] for row in data])
+                        self.t0 = np.array([row[0] for row in data], dtype=self.dtype)
+                        self.Tj = np.array([row[1] for row in data], dtype=self.dtype)
                         print(f"使用xlrd加载数据: {len(self.t0)} 个数据点")
                         return True
 
@@ -288,8 +305,8 @@ class ThermalAnalysisProcessor:
                 try:
                     data = np.genfromtxt(file_path, delimiter=',', skip_header=1)
                     if data.shape[1] >= 2:
-                        self.t0 = data[:, 0]
-                        self.Tj = data[:, 1]
+                        self.t0 = data[:, 0].astype(self.dtype)
+                        self.Tj = data[:, 1].astype(self.dtype)
                         print(f"使用numpy加载数据: {len(self.t0)} 个数据点")
                         return True
                 except:
@@ -306,7 +323,7 @@ class ThermalAnalysisProcessor:
         if self.t0 is None or self.Tj is None:
             return False
 
-        self.Zth_transient = (self.Tj - ambient_temp) / self.ploss
+        self.Zth_transient = ((self.Tj - ambient_temp) / self.ploss).astype(self.dtype)
         return True
 
     def logarithmic_interpolation(self):
@@ -342,21 +359,21 @@ class ThermalAnalysisProcessor:
         except:
             # 如果还有问题，使用最简单的线性插值
             interp_func = interp1d(t0_unique, Zth_unique, kind='linear',
-                                 fill_value=(Zth_unique[0], Zth_unique[-1]),
-                                 bounds_error=False)
+                                   fill_value=(Zth_unique[0], Zth_unique[-1]),
+                                   bounds_error=False)
 
         # 步骤3: 计算 a(z) = Zth(t=exp(z))
         az_fft = interp_func(np.exp(z_fft))
 
         # 步骤4: 均匀插值
         z_end = np.log(t0_unique[-1])
-        z_bayesian = np.arange(-9.2, z_end + self.delta_z, self.delta_z)
-        t_bayesian = np.exp(z_bayesian)
+        z_bayesian = np.arange(-9.2, z_end + self.delta_z, self.delta_z, dtype=self.dtype)
+        t_bayesian = np.exp(z_bayesian).astype(self.dtype)
 
         # 确保插值范围在有效数据范围内
         t_bayesian = t_bayesian[(t_bayesian >= t0_unique[0]) & (t_bayesian <= t0_unique[-1])]
-        az_bayesian = interp_func(t_bayesian)
-        z_bayesian = np.log(t_bayesian)
+        az_bayesian = interp_func(t_bayesian).astype(self.dtype)
+        z_bayesian = np.log(t_bayesian).astype(self.dtype)
 
         self.results['z_fft'] = z_fft
         self.results['az_fft'] = az_fft
@@ -376,15 +393,15 @@ class ThermalAnalysisProcessor:
         az_bayesian = self.results['az_bayesian']
 
         # 计算导数
-        dz_bayesian = np.diff(z_bayesian)
-        da_bayesian = np.diff(az_bayesian)
-        da_dz_bayesian = da_bayesian / dz_bayesian
+        dz_bayesian = np.diff(z_bayesian).astype(self.dtype)
+        da_bayesian = np.diff(az_bayesian).astype(self.dtype)
+        da_dz_bayesian = (da_bayesian / dz_bayesian).astype(self.dtype)
 
         # 平滑导数
         window_size = min(51, len(da_dz_bayesian))
         if window_size % 2 == 0:
             window_size -= 1  # 确保窗口大小为奇数
-        da_dz_bayesian_smoothed = savgol_filter(da_dz_bayesian, window_size, 3)
+        da_dz_bayesian_smoothed = savgol_filter(da_dz_bayesian, window_size, 3).astype(self.dtype)
 
         self.results['dz_bayesian'] = dz_bayesian
         self.results['da_dz_bayesian'] = da_dz_bayesian
@@ -398,7 +415,7 @@ class ThermalAnalysisProcessor:
             return False
 
         z_bayesian = self.results['z_bayesian']
-        wz_bayesian = np.exp(z_bayesian - np.exp(z_bayesian))
+        wz_bayesian = np.exp(z_bayesian - np.exp(z_bayesian)).astype(self.dtype)
 
         self.results['wz_bayesian'] = wz_bayesian
         return True
@@ -416,24 +433,24 @@ class ThermalAnalysisProcessor:
 
         # 确保数组长度匹配
         if len(da_dz_bayesian) != len(z_bayesian) - 1:
-            print(f"警告: da_dz_bayesian长度({len(da_dz_bayesian)})与预期长度({len(z_bayesian)-1})不匹配")
+            print(f"警告: da_dz_bayesian长度({len(da_dz_bayesian)})与预期长度({len(z_bayesian) - 1})不匹配")
             # 调整数组长度
             min_len = min(len(da_dz_bayesian), len(z_bayesian) - 1)
             da_dz_bayesian = da_dz_bayesian[:min_len]
-            z_bayesian = z_bayesian[:min_len+1]
-            wz_bayesian = wz_bayesian[:min_len+1]
+            z_bayesian = z_bayesian[:min_len + 1]
+            wz_bayesian = wz_bayesian[:min_len + 1]
             print(f"调整数组长度到: da_dz_bayesian={len(da_dz_bayesian)}, z_bayesian={len(z_bayesian)}")
 
         # 生成权重函数矩阵
         n = len(da_dz_bayesian)
-        W = np.zeros((n, n))
+        W = np.zeros((n, n), dtype=self.dtype)
 
         for i in range(n):
             for j in range(n):
                 W[i, j] = np.exp(z_bayesian[i] - z_bayesian[j] - np.exp(z_bayesian[i] - z_bayesian[j]))
 
         # 初始化R
-        R = da_dz_bayesian / np.sum(da_dz_bayesian)
+        R = (da_dz_bayesian / np.sum(da_dz_bayesian)).astype(self.dtype)
 
         # 迭代计算
         for iter in range(self.num_iterations):
@@ -444,7 +461,7 @@ class ThermalAnalysisProcessor:
         self.results['R'] = R
         # 同时保存对应的z_bayesian（用于后续计算）
         self.results['z_bayesian_for_R'] = z_bayesian[:n]
-        
+
         return True
 
     def discrete_time_constant_spectrum(self):
@@ -458,7 +475,7 @@ class ThermalAnalysisProcessor:
             z_bayesian = self.results['z_bayesian_for_R']
         else:
             z_bayesian = self.results['z_bayesian']
-            
+
         R = self.results['R']
 
         # 检查数组长度匹配
@@ -486,30 +503,30 @@ class ThermalAnalysisProcessor:
         # 基于R值的分布进行自适应区间划分
         R_cumsum = np.cumsum(R_valid)
         R_total = R_cumsum[-1]
-        
+
         # 确保每个区间包含足够的R值
         min_R_per_interval = R_total / (self.discrete_order * 2)  # 至少包含总R值的1/(2*order)
-        
+
         # 创建区间边界
         interval_boundaries = []
         current_sum = 0
         target_sum = R_total / self.discrete_order
-        
+
         for i, r_val in enumerate(R_valid):
             current_sum += r_val
             if current_sum >= target_sum and len(interval_boundaries) < self.discrete_order - 1:
                 interval_boundaries.append(i)
                 current_sum = 0
-        
+
         # 确保有足够的区间
         if len(interval_boundaries) < self.discrete_order - 1:
             # 如果区间不够，使用均匀划分
             step = len(R_valid) // self.discrete_order
             interval_boundaries = [i * step for i in range(1, self.discrete_order)]
-        
+
         # 添加起始和结束边界
         interval_boundaries = [0] + interval_boundaries + [len(R_valid)]
-        
+
         # Foster网络参数计算
         fosterRth = []
         fosterCth = []
@@ -518,23 +535,23 @@ class ThermalAnalysisProcessor:
         for i in range(len(interval_boundaries) - 1):
             start_idx = interval_boundaries[i]
             end_idx = interval_boundaries[i + 1]
-            
+
             if end_idx > start_idx:
                 # 计算该区间内的总热阻
                 interval_R = np.sum(R_valid[start_idx:end_idx]) * self.delta_z
-                
+
                 if interval_R > 0:
                     # 计算该区间的平均时间常数
                     z_interval = z_valid[start_idx:end_idx]
                     tau_interval = np.exp(z_interval)
-                    
+
                     # 使用加权平均计算时间常数
                     weights = R_valid[start_idx:end_idx]
                     tau_weighted = np.average(tau_interval, weights=weights)
-                    
+
                     # 计算对应的热容
                     interval_C = tau_weighted / interval_R
-                    
+
                     # 验证热容的合理性
                     if interval_C > 0 and np.isfinite(interval_C):
                         fosterRth.append(interval_R)
@@ -542,9 +559,9 @@ class ThermalAnalysisProcessor:
                         tau_Foster.append(interval_R * interval_C)
 
         # 转换为numpy数组
-        fosterRth = np.array(fosterRth)
-        fosterCth = np.array(fosterCth)
-        tau_Foster = np.array(tau_Foster)
+        fosterRth = np.array(fosterRth, dtype=self.dtype)
+        fosterCth = np.array(fosterCth, dtype=self.dtype)
+        tau_Foster = np.array(tau_Foster, dtype=self.dtype)
 
         # 过滤掉零值和负值
         valid_foster_mask = (fosterRth > 0) & (fosterCth > 0) & np.isfinite(fosterRth) & np.isfinite(fosterCth)
@@ -561,12 +578,69 @@ class ThermalAnalysisProcessor:
         print(f"热容范围: {fosterCth[valid_foster_mask].min():.2e} - {fosterCth[valid_foster_mask].max():.2e} Ws/K")
         return True
 
+    def calc_parallel_c(self, s, numy, deny):
+        """
+        计算并联热容参数（等效于Matlab的calcParallelC函数）
 
+        参数：
+        s: 符号变量
+        numY: 分子多项式表达式
+        denY: 分母多项式表达式
+
+        返回：
+        c: 首项系数比值
+        """
+        # 将表达式转换为多项式并提取首项系数
+        num_poly = Poly(numy, s)
+        den_poly = Poly(deny, s)
+
+        # 获取最高次项的系数
+        leading_coeff_num = num_poly.coeffs()[0]
+        leading_coeff_den = den_poly.coeffs()[0]
+
+        return leading_coeff_num / leading_coeff_den
+
+    def calc_series_r(self, s, numz, denz):
+        """
+        计算串联热阻参数（等效于Matlab的calcSeriesR函数）
+
+        参数：
+        s: 符号变量
+        numZ: 分子多项式表达式
+        denZ: 分母多项式表达式
+
+        返回：
+        r: 首项系数比值
+        """
+        # 将表达式转换为多项式并提取首项系数
+        num_poly = Poly(numz, s)
+        den_poly = Poly(denz, s)
+        # 获取最高次项的系数
+        leading_coeff_num = num_poly.coeffs()[0]
+        leading_coeff_den = den_poly.coeffs()[0]
+        return leading_coeff_num / leading_coeff_den
+
+    def manual_handler(self):
+        foster_rth = self.results['fosterRth']
+        foster_cth = self.results['fosterCth']
+        foster_rth[0] = 0.001
+        foster_rth[1] = 0.001
+        foster_rth[2] = 0.001
+        foster_cth[0] = 0.001
+        foster_cth[1] = 0.001
+        foster_cth[2] = 0.001
+        foster_cth[3] = 0.001
+        foster_cth[4] = 0.001
+        foster_cth[5] = 0.001
+        self.results['fosterRth'] = foster_rth
+        self.results['fosterCth'] = foster_cth
 
     def foster_to_cauer(self):
+        """根据Matlab代码逻辑重写的Foster到Cauer网络转换方法 - 使用最大公因子辗转相除法"""
         foster_rth = self.results['fosterRth']
         foster_cth = self.results['fosterCth']
         s = sp.symbols('s')
+
         # 计算复阻抗 Z(s)
         Zs = 0
         for i in range(len(foster_rth)):
@@ -574,54 +648,110 @@ class ThermalAnalysisProcessor:
 
         # 计算复导纳 Y(s)
         Ys = 1 / Zs
-        Ys = sp.simplify(Ys)
 
-        # 初始化Cauer网络参数列表
+        # 提取 Y(s) 的分子和分母多项式
+        try:
+            numY, denY = sp.fraction(sp.expand(Ys))
+            numY = sp.collect(numY, s)  # 简化分子
+            denY = sp.collect(denY, s)  # 简化分母
+        except Exception as e:
+            print(f"提取分子分母多项式时出错: {e}")
+            return False
+
+        # 初始化参数
         cauerRth = []
         cauerCth = []
 
-        n = len(foster_rth)
-        # 迭代提取Cauer参数
-        for i in range(n):
-            # 提取并联电容（通过计算s->oo时 Y(s)/s 的极限）
-            C_val = sp.limit(Ys / s, s, sp.oo)
-            # 如果无法提取电容则终止迭代
-            if sp.simplify(C_val).is_zero or C_val == sp.oo:
+        j = 0
+        max_iterations = len(foster_rth)
+        
+        for i in range(max_iterations):
+            try:
+                # 计算并联热容参数
+                c = self.calc_parallel_c(s, numY, denY)
+                if c == 0 or not sp.simplify(c).is_finite:
+                    print(f"迭代 {i+1}: 并联热容参数无效，停止迭代")
+                    break
+                cauerCth.append(c)
+                print(f"迭代 {i+1}: 并联热容 = {c}")
+                
+                # 更新复导纳的分子
+                numY = sp.expand(numY - c * s * denY)
+                
+                # 计算更新后的复阻抗 Z(s)
+                Zs = 1 / (numY / denY)
+
+                # 提取Z(s)的分子和分母多项式
+                numZ, denZ = sp.fraction(sp.expand(Zs))
+                numZ = sp.collect(numZ, s)  # 简化分子
+                denZ = sp.collect(denZ, s)  # 简化分母
+                
+                # 计算串联热阻参数
+                r = self.calc_series_r(s, numZ, denZ)
+                if r == 0 or not sp.simplify(r).is_finite:
+                    print(f"迭代 {i+1}: 串联热阻参数无效，停止迭代")
+                    break
+                cauerRth.append(r)
+                print(f"迭代 {i+1}: 串联热阻 = {r}")
+                
+                # 更新复阻抗的分子
+                numZ = sp.expand(numZ - r * denZ)
+
+                j = j + 1
+                numY = denZ
+                denY = numZ
+
+                # 判断 Z(s) 是否等于 0
+                if sp.expand(numZ / denZ) == 0:
+                    print(f"迭代 {i+1}: Z(s) = 0，停止迭代")
+                    break
+                    
+            except Exception as e:
+                print(f"迭代 {i+1} 时出错: {e}")
                 break
-            cauerCth.append(C_val)
 
-            # 更新导纳：移除并联电容项
-            Ys = sp.expand(Ys - C_val * s)
-            Ys = sp.simplify(Ys)
+        # 将符号表达式转换为数值
+        try:
+            cauerRth_numeric = []
+            cauerCth_numeric = []
 
-            # 如果导纳为0则终止迭代
-            if Ys == 0:
-                break
+            for r_val in cauerRth:
+                try:
+                    # 尝试将符号表达式转换为浮点数
+                    r_numeric = float(r_val)
+                    cauerRth_numeric.append(r_numeric)
+                except (TypeError, ValueError):
+                    # 如果转换失败，跳过这个值
+                    print(f"警告: 无法转换热阻值 {r_val} 为数值")
+                    continue
 
-            # 计算新阻抗 Z(s) = 1/Y(s)
-            Zs = 1 / Ys
-            Zs = sp.simplify(Zs)
+            for c_val in cauerCth:
+                try:
+                    # 尝试将符号表达式转换为浮点数
+                    c_numeric = float(c_val)
+                    cauerCth_numeric.append(c_numeric)
+                except (TypeError, ValueError):
+                    # 如果转换失败，跳过这个值
+                    print(f"警告: 无法转换热容值 {c_val} 为数值")
+                    continue
 
-            # 提取串联电阻（通过计算s->0时 Z(s) 的极限）
-            R_val = sp.limit(Zs, s, 0)
-            # 如果无法提取电阻则终止迭代
-            if sp.simplify(R_val).is_zero or R_val == sp.oo:
-                break
-            cauerRth.append(R_val)
+            # 转换为numpy数组
+            cauerRth_array = np.array(cauerRth_numeric, dtype=self.dtype)
+            cauerCth_array = np.array(cauerCth_numeric, dtype=self.dtype)
 
-            # 更新阻抗：移除串联电阻项
-            Zs = sp.expand(Zs - R_val)
-            Zs = sp.simplify(Zs)
+            # 保存数值数组
+            self.results['cauerRth'] = cauerRth_array
+            self.results['cauerCth'] = cauerCth_array
 
-            # 如果阻抗为0则终止迭代
-            if Zs == 0:
-                break
-            # 更新导纳为剩余阻抗的倒数
-            Ys = 1 / Zs
-            Ys = sp.simplify(Ys)
-        self.results['cauerRth'] = cauerRth
-        self.results['cauerCth'] = cauerCth
-        return True
+            print(f"Foster到Cauer转换完成: {len(cauerRth_array)} 个有效参数")
+            return True
+
+        except Exception as e:
+            print(f"Foster到Cauer转换失败: {e}")
+            # 如果转换失败，保存原始符号表达式（用于调试）
+            self.results['cauerRth'] = cauerRth
+            self.results['cauerCth'] = cauerCth
+            return False
 
     def calculate_structure_functions(self):
         """计算结构函数 - 基于Cauer网络参数
@@ -645,7 +775,49 @@ class ThermalAnalysisProcessor:
         cauerRth = self.results['cauerRth']
         cauerCth = self.results['cauerCth']
 
-        # 过滤掉零值和负值
+        # 确保转换为numpy数组
+        try:
+            if isinstance(cauerRth, list):
+                # 如果是列表，尝试转换为数值数组
+                cauerRth_numeric = []
+                for r_val in cauerRth:
+                    try:
+                        r_numeric = float(r_val)
+                        cauerRth_numeric.append(r_numeric)
+                    except (TypeError, ValueError):
+                        print(f"警告: 无法转换热阻值 {r_val} 为数值")
+                        continue
+                cauerRth = np.array(cauerRth_numeric, dtype=self.dtype)
+            else:
+                cauerRth = np.array(cauerRth, dtype=self.dtype)
+
+            if isinstance(cauerCth, list):
+                # 如果是列表，尝试转换为数值数组
+                cauerCth_numeric = []
+                for c_val in cauerCth:
+                    try:
+                        c_numeric = float(c_val)
+                        cauerCth_numeric.append(c_numeric)
+                    except (TypeError, ValueError):
+                        print(f"警告: 无法转换热容值 {c_val} 为数值")
+                        continue
+                cauerCth = np.array(cauerCth_numeric, dtype=self.dtype)
+            else:
+                cauerCth = np.array(cauerCth, dtype=self.dtype)
+
+        except Exception as e:
+            print(f"警告: Cauer参数转换为数值失败: {e}")
+            return False
+
+        # 检查数组长度是否匹配
+        if len(cauerRth) != len(cauerCth):
+            print(f"警告: Cauer热阻数组长度({len(cauerRth)})与热容数组长度({len(cauerCth)})不匹配")
+            # 使用较短的长度
+            min_len = min(len(cauerRth), len(cauerCth))
+            cauerRth = cauerRth[:min_len]
+            cauerCth = cauerCth[:min_len]
+
+        # 过滤掉零值、负值和无效值
         valid_mask = (cauerRth > 0) & (cauerCth > 0) & np.isfinite(cauerRth) & np.isfinite(cauerCth)
         if not np.any(valid_mask):
             print("警告: 没有有效的Cauer网络参数用于结构函数计算")
@@ -656,51 +828,61 @@ class ThermalAnalysisProcessor:
 
         # Cauer网络的结构函数计算 - 基于Matlab代码逻辑
         # 积分结构函数计算
-        cumulative_Rth = np.cumsum(cauerRth_valid)
-        cumulative_Cth = np.cumsum(cauerCth_valid)
+        cumulative_Rth = np.cumsum(cauerRth_valid).astype(self.dtype)
+        cumulative_Cth = np.cumsum(cauerCth_valid).astype(self.dtype)
 
-        # 计算微分结构函数
-        # 注意：避免除零错误
+        # 计算微分结构函数 - 修复数组长度问题
         if len(cumulative_Rth) > 1:
-            # 长度正确的数组
-            differential_Cth = np.zeros(len(cumulative_Rth) - 1)
-            differential_Rth = np.zeros(len(cumulative_Rth) - 1)
-
-            # 计算差分
+            # 计算相邻积分值的差值
             diff_cumulative_Rth = np.diff(cumulative_Rth)
             diff_cumulative_Cth = np.diff(cumulative_Cth)
 
-            # 处理有效差分
+            # 计算微分结构函数
+            # 注意：避免除零错误
             valid_diff_mask = diff_cumulative_Rth > 0
             if np.any(valid_diff_mask):
+                # 使用正确的数组长度
+                differential_Cth = np.zeros(len(diff_cumulative_Rth))
+                differential_Rth = np.zeros(len(diff_cumulative_Rth))
+
+                # 对于有效差值，计算微分热容
                 differential_Cth[valid_diff_mask] = diff_cumulative_Cth[valid_diff_mask] / diff_cumulative_Rth[
                     valid_diff_mask]
-                differential_Rth[valid_diff_mask] = cumulative_Rth[:-1][valid_diff_mask]
+                differential_Rth[valid_diff_mask] = cumulative_Rth[:-1][valid_diff_mask]  # 使用前n-1个积分热阻值
 
-            # 过滤无效值
-            valid_mask = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(differential_Rth) & np.isfinite(
-                differential_Cth)
-            differential_Rth = differential_Rth[valid_mask]
-            differential_Cth = differential_Cth[valid_mask]
+                # 过滤掉无效值
+                valid_differential_mask = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(
+                    differential_Rth) & np.isfinite(differential_Cth)
+                if np.any(valid_differential_mask):
+                    differential_Rth = differential_Rth[valid_differential_mask]
+                    differential_Cth = differential_Cth[valid_differential_mask]
+                else:
+                    # 如果没有有效微分值，使用原始Cauer参数作为备选
+                    differential_Rth = cauerRth_valid
+                    differential_Cth = cauerCth_valid
+            else:
+                # 如果没有有效差值，使用原始Cauer参数
+                differential_Rth = cauerRth_valid
+                differential_Cth = cauerCth_valid
         else:
             # 如果只有一个数据点，则没有微分值
             differential_Rth = np.array([])
             differential_Cth = np.array([])
-        
+
         # 去掉最后几个热容特别大的层（如果存在）
         if len(cumulative_Cth) > 4:
             # 计算热容的阈值（例如：超过平均值的10倍）
             mean_Cth = np.mean(cumulative_Cth)
             threshold = mean_Cth * 10
-            
+
             # 找到需要保留的索引
             valid_indices = cumulative_Cth <= threshold
-            
+
             if np.sum(valid_indices) < len(cumulative_Cth):
                 print(f"去掉了 {len(cumulative_Cth) - np.sum(valid_indices)} 个热容过大的层")
                 cumulative_Rth = cumulative_Rth[valid_indices]
                 cumulative_Cth = cumulative_Cth[valid_indices]
-                
+
                 # 同时更新微分结构函数
                 if len(differential_Rth) > 0:
                     # 确保微分结构函数的长度与积分结构函数匹配
@@ -710,10 +892,17 @@ class ThermalAnalysisProcessor:
                         differential_Cth = differential_Cth[:max_valid_index]
 
         # 保存结果
-        self.results['cumulative_Rth'] = cumulative_Rth
+        self.results['cumulative_Rth'] = cumulative_Rth[valid_mask]
         self.results['cumulative_Cth'] = cumulative_Cth
         self.results['differential_Rth'] = differential_Rth
         self.results['differential_Cth'] = differential_Cth
+
+        print(f"结构函数计算完成:")
+        print(f"  积分结构函数数据点: {len(cumulative_Rth)}")
+        print(f"  微分结构函数数据点: {len(differential_Rth)}")
+        # if len(differential_Rth) > 0:
+        #     print(f"  微分热阻范围: {differential_Rth.min():.2e} - {differential_Rth.max():.2e} K/W")
+        #     print(f"  微分热容范围: {differential_Cth.min():.2e} - {differential_Cth.max():.2e} Ws/K")
 
         return True
 
@@ -728,10 +917,41 @@ class ThermalAnalysisProcessor:
             print("警告: 没有Cauer网络参数，请先执行Foster到Cauer转换")
             return False
 
-        cauerRth = self.results['cauerRth']
-        cauerCth = self.results['cauerCth']
+        # 确保转换为numpy数组并处理可能的非数值类型
+        try:
+            cauerRth = self.results['cauerRth']
+            cauerCth = self.results['cauerCth']
 
-        # 过滤掉零值和负值
+            # 处理列表类型
+            if isinstance(cauerRth, list):
+                cauerRth_numeric = []
+                for r_val in cauerRth:
+                    try:
+                        r_numeric = float(r_val)
+                        cauerRth_numeric.append(r_numeric)
+                    except (TypeError, ValueError):
+                        continue
+                cauerRth = np.array(cauerRth_numeric, dtype=self.dtype)
+            else:
+                cauerRth = np.array(cauerRth, dtype=self.dtype)
+
+            if isinstance(cauerCth, list):
+                cauerCth_numeric = []
+                for c_val in cauerCth:
+                    try:
+                        c_numeric = float(c_val)
+                        cauerCth_numeric.append(c_numeric)
+                    except (TypeError, ValueError):
+                        continue
+                cauerCth = np.array(cauerCth_numeric, dtype=self.dtype)
+            else:
+                cauerCth = np.array(cauerCth, dtype=self.dtype)
+
+        except (ValueError, TypeError) as e:
+            print(f"警告: Cauer参数转换为数值失败: {e}")
+            return False
+
+        # 过滤掉零值、负值和无效值
         valid_mask = (cauerRth > 0) & (cauerCth > 0) & np.isfinite(cauerRth) & np.isfinite(cauerCth)
         if not np.any(valid_mask):
             print("警告: 没有有效的Cauer网络参数用于结构函数计算")
@@ -741,48 +961,56 @@ class ThermalAnalysisProcessor:
         cauerCth_valid = cauerCth[valid_mask]
         # Cauer网络的结构函数计算 - 基于Matlab代码逻辑
         # 积分结构函数计算
-        cumulative_Rth = np.cumsum(cauerRth_valid)
-        cumulative_Cth = np.cumsum(cauerCth_valid)
-        
+        cumulative_Rth = np.cumsum(cauerRth_valid).astype(self.dtype)
+        cumulative_Cth = np.cumsum(cauerCth_valid).astype(self.dtype)
+
         # 微分结构函数计算 - 按照Matlab代码逻辑
         # 计算相邻积分值的差值
         diff_cumulative_Rth = np.diff(cumulative_Rth)
         diff_cumulative_Cth = np.diff(cumulative_Cth)
-        
+
         # 计算微分结构函数
         # 注意：避免除零错误
         valid_diff_mask = diff_cumulative_Rth > 0
         if np.any(valid_diff_mask):
-            differential_Cth = np.zeros_like(cauerCth_valid)
-            differential_Rth = np.zeros_like(cauerRth_valid)
-            
+            # 使用正确的数组长度
+            differential_Cth = np.zeros(len(diff_cumulative_Rth))
+            differential_Rth = np.zeros(len(diff_cumulative_Rth))
+
             # 对于有效差值，计算微分热容
-            differential_Cth[valid_diff_mask] = diff_cumulative_Cth[valid_diff_mask] / diff_cumulative_Rth[valid_diff_mask]
+            differential_Cth[valid_diff_mask] = diff_cumulative_Cth[valid_diff_mask] / diff_cumulative_Rth[
+                valid_diff_mask]
             differential_Rth[valid_diff_mask] = cumulative_Rth[:-1][valid_diff_mask]
-            
+
             # 过滤掉无效值
-            valid_mask = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(differential_Rth) & np.isfinite(differential_Cth)
-            differential_Rth = differential_Rth[valid_mask]
-            differential_Cth = differential_Cth[valid_mask]
+            valid_differential_mask = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(
+                differential_Rth) & np.isfinite(differential_Cth)
+            if np.any(valid_differential_mask):
+                differential_Rth = differential_Rth[valid_differential_mask]
+                differential_Cth = differential_Cth[valid_differential_mask]
+            else:
+                # 如果没有有效微分值，使用原始Cauer参数作为备选
+                differential_Rth = cauerRth_valid
+                differential_Cth = cauerCth_valid
         else:
             # 如果没有有效差值，使用原始Cauer参数
             differential_Rth = cauerRth_valid
             differential_Cth = cauerCth_valid
-        
+
         # 去掉最后几个热容特别大的层（如果存在）
         if len(cumulative_Cth) > 4:
             # 计算热容的阈值（例如：超过平均值的10倍）
             mean_Cth = np.mean(cumulative_Cth)
             threshold = mean_Cth * 10
-            
+
             # 找到需要保留的索引
             valid_indices = cumulative_Cth <= threshold
-            
+
             if np.sum(valid_indices) < len(cumulative_Cth):
                 print(f"去掉了 {len(cumulative_Cth) - np.sum(valid_indices)} 个热容过大的层")
                 cumulative_Rth = cumulative_Rth[valid_indices]
                 cumulative_Cth = cumulative_Cth[valid_indices]
-                
+
                 # 同时更新微分结构函数
                 if len(differential_Rth) > 0:
                     # 确保微分结构函数的长度与积分结构函数匹配
@@ -797,212 +1025,19 @@ class ThermalAnalysisProcessor:
         self.results['differential_Rth'] = differential_Rth
         self.results['differential_Cth'] = differential_Cth
 
-        print(f"基于Cauer网络的备选结构函数计算完成: {len(cumulative_Rth)} 个数据点")
-        print(f"热阻范围: {differential_Rth.min():.2e} - {differential_Rth.max():.2e} K/W")
-        print(f"积分热容范围: {cumulative_Cth.min():.2e} - {cumulative_Cth.max():.2e} Ws/K")
-        print(f"微分热容范围: {differential_Cth.min():.2e} - {differential_Cth.max():.2e} Ws/K")
-        
+        # print(f"基于Cauer网络的备选结构函数计算完成: {len(cumulative_Rth)} 个数据点")
+        # print(f"热阻范围: {differential_Rth.min():.2e} - {differential_Rth.max():.2e} K/W")
+        # print(f"积分热容范围: {cumulative_Cth.min():.2e} - {cumulative_Cth.max():.2e} Ws/K")
+        # print(f"微分热容范围: {differential_Cth.min():.2e} - {differential_Cth.max():.2e} Ws/K")
+
         # 验证积分结构函数的阶梯状特性
         if len(cumulative_Cth) > 1:
             steps = np.diff(cumulative_Cth)
-            print(f"积分热容阶梯数: {len(steps)}")
-            print(f"阶梯高度范围: {steps.min():.2e} - {steps.max():.2e} Ws/K")
-            print(f"平均阶梯高度: {steps.mean():.2e} Ws/K")
-        
+            # print(f"积分热容阶梯数: {len(steps)}")
+            # print(f"阶梯高度范围: {steps.min():.2e} - {steps.max():.2e} Ws/K")
+            # print(f"平均阶梯高度: {steps.mean():.2e} Ws/K")
+
         return True
-
-    def debug_structure_functions(self):
-        """调试结构函数计算过程"""
-        print("\n=== 结构函数计算调试信息 ===")
-        
-        if 'cauerRth' in self.results and 'cauerCth' in self.results:
-            cauerRth = self.results['cauerRth']
-            cauerCth = self.results['cauerCth']
-            
-            print(f"Cauer网络参数数量: {len(cauerRth)}")
-            print(f"热阻范围: {cauerRth.min():.2e} - {cauerRth.max():.2e} K/W")
-            print(f"热容范围: {cauerCth.min():.2e} - {cauerCth.max():.2e} Ws/K")
-            
-            # 检查时间常数
-            tau = cauerRth * cauerCth
-            print(f"时间常数范围: {tau.min():.2e} - {tau.max():.2e} s")
-            
-            # 检查有效参数
-            valid_mask = (cauerRth > 0) & (cauerCth > 0) & np.isfinite(cauerRth) & np.isfinite(cauerCth)
-            print(f"有效参数数量: {np.sum(valid_mask)}")
-            
-            if np.any(valid_mask):
-                print("前5个有效参数:")
-                for i in range(min(5, np.sum(valid_mask))):
-                    idx = np.where(valid_mask)[0][i]
-                    print(f"  R{i+1}={cauerRth[idx]:.2e} K/W, C{i+1}={cauerCth[idx]:.2e} Ws/K, τ{i+1}={tau[idx]:.2e} s")
-        else:
-            print("未找到Cauer网络参数")
-            
-        if 'fosterRth' in self.results and 'fosterCth' in self.results:
-            fosterRth = self.results['fosterRth']
-            fosterCth = self.results['fosterCth']
-            
-            print(f"Foster网络参数数量: {len(fosterRth)}")
-            print(f"热阻范围: {fosterRth.min():.2e} - {fosterRth.max():.2e} K/W")
-            print(f"热容范围: {fosterCth.min():.2e} - {fosterCth.max():.2e} Ws/K")
-            
-            # 检查时间常数
-            tau = fosterRth * fosterCth
-            print(f"时间常数范围: {tau.min():.2e} - {tau.max():.2e} s")
-            
-            # 检查有效参数
-            valid_mask = (fosterRth > 0) & (fosterCth > 0) & np.isfinite(fosterRth) & np.isfinite(fosterCth)
-            print(f"有效参数数量: {np.sum(valid_mask)}")
-            
-            if np.any(valid_mask):
-                print("前5个有效参数:")
-                for i in range(min(5, np.sum(valid_mask))):
-                    idx = np.where(valid_mask)[0][i]
-                    print(f"  R{i+1}={fosterRth[idx]:.2e} K/W, C{i+1}={fosterCth[idx]:.2e} Ws/K, τ{i+1}={tau[idx]:.2e} s")
-        else:
-            print("未找到Foster网络参数")
-            
-        if 'cumulative_Rth' in self.results and 'cumulative_Cth' in self.results:
-            cumulative_Rth = self.results['cumulative_Rth']
-            cumulative_Cth = self.results['cumulative_Cth']
-            
-            print(f"\n积分结构函数数据点: {len(cumulative_Rth)}")
-            print(f"积分热阻范围: {cumulative_Rth.min():.2e} - {cumulative_Rth.max():.2e} K/W")
-            print(f"积分热容范围: {cumulative_Cth.min():.2e} - {cumulative_Cth.max():.2e} Ws/K")
-        else:
-            print("未找到积分结构函数数据")
-            
-        if 'differential_Rth' in self.results and 'differential_Cth' in self.results:
-            differential_Rth = self.results['differential_Rth']
-            differential_Cth = self.results['differential_Cth']
-            
-            print(f"\n微分结构函数数据点: {len(differential_Rth)}")
-            print(f"微分热阻范围: {differential_Rth.min():.2e} - {differential_Rth.max():.2e} K/W")
-            print(f"微分热容范围: {differential_Cth.min():.2e} - {differential_Cth.max():.2e} Ws/K")
-        else:
-            print("未找到微分结构函数数据")
-            
-        print("=== 调试信息结束 ===\n")
-
-    def analyze_thermal_capacity_distribution(self):
-        """分析热容值分布，帮助诊断积分结构函数问题"""
-        print("\n=== 热容值分布分析 ===")
-        
-        if 'cauerRth' in self.results and 'cauerCth' in self.results:
-            cauerRth = self.results['cauerRth']
-            cauerCth = self.results['cauerCth']
-            
-            # 分析Cauer网络热容值的分布
-            print(f"Cauer网络热容值统计:")
-            print(f"  最小值: {cauerCth.min():.2e} Ws/K")
-            print(f"  最大值: {cauerCth.max():.2e} Ws/K")
-            print(f"  平均值: {cauerCth.mean():.2e} Ws/K")
-            print(f"  中位数: {np.median(cauerCth):.2e} Ws/K")
-            print(f"  标准差: {cauerCth.std():.2e} Ws/K")
-            
-            # # 检查热容值的分布是否均匀
-            # sorted_Cth = np.sort(cauerCth)
-            # differences = np.diff(sorted_Cth)
-            # print(f"  热容值相邻差值范围: {differences.min():.2e} - {differences.max():.2e} Ws/K")
-            # print(f"  热容值相邻差值平均值: {differences.mean():.2e} Ws/K")
-            #
-            # # 检查是否有重复或相近的热容值
-            # unique_Cth, counts = np.unique(cauerCth, return_counts=True)
-            # print(f"  唯一热容值数量: {len(unique_Cth)} / {len(cauerCth)}")
-            # if len(unique_Cth) < len(cauerCth):
-            #     print(f"  存在重复热容值，重复次数最多的值出现 {counts.max()} 次")
-            #
-            # # 分析时间常数与热容的关系
-            # tau = cauerRth * cauerCth
-            # print(f"\n时间常数与热容关系:")
-            # print(f"  时间常数范围: {tau.min():.2e} - {tau.max():.2e} s")
-            #
-            # # 检查是否存在异常的时间常数
-            # tau_ratio = tau.max() / tau.min()
-            # print(f"  时间常数比值 (max/min): {tau_ratio:.2e}")
-            #
-            # if tau_ratio > 1e6:
-            #     print("  警告: 时间常数范围过大，可能导致热容计算不准确")
-        
-        if 'fosterRth' in self.results and 'fosterCth' in self.results:
-            fosterRth = self.results['fosterRth']
-            fosterCth = self.results['fosterCth']
-            
-            # 分析Foster网络热容值的分布
-            print(f"\nFoster网络热容值统计:")
-            print(f"  最小值: {fosterCth.min():.2e} Ws/K")
-            print(f"  最大值: {fosterCth.max():.2e} Ws/K")
-            print(f"  平均值: {fosterCth.mean():.2e} Ws/K")
-            print(f"  中位数: {np.median(fosterCth):.2e} Ws/K")
-            print(f"  标准差: {fosterCth.std():.2e} Ws/K")
-            
-            # 检查热容值的分布是否均匀
-            sorted_Cth = np.sort(fosterCth)
-            differences = np.diff(sorted_Cth)
-            print(f"  热容值相邻差值范围: {differences.min():.2e} - {differences.max():.2e} Ws/K")
-            print(f"  热容值相邻差值平均值: {differences.mean():.2e} Ws/K")
-            
-            # 检查是否有重复或相近的热容值
-            unique_Cth, counts = np.unique(fosterCth, return_counts=True)
-            print(f"  唯一热容值数量: {len(unique_Cth)} / {len(fosterCth)}")
-            if len(unique_Cth) < len(fosterCth):
-                print(f"  存在重复热容值，重复次数最多的值出现 {counts.max()} 次")
-            
-            # 分析时间常数与热容的关系
-            tau = fosterRth * fosterCth
-            print(f"\n时间常数与热容关系:")
-            print(f"  时间常数范围: {tau.min():.2e} - {tau.max():.2e} s")
-            
-            # 检查是否存在异常的时间常数
-            tau_ratio = tau.max() / tau.min()
-            print(f"  时间常数比值 (max/min): {tau_ratio:.2e}")
-            
-            if tau_ratio > 1e6:
-                print("  警告: 时间常数范围过大，可能导致热容计算不准确")
-            
-        if 'cumulative_Cth' in self.results:
-            cumulative_Cth = self.results['cumulative_Cth']
-            print(f"\n积分结构函数热容分析:")
-            print(f"  积分热容变化范围: {cumulative_Cth.max() - cumulative_Cth.min():.2e} Ws/K")
-            
-            # 检查积分热容的单调性
-            if np.all(np.diff(cumulative_Cth) >= 0):
-                print("  积分热容单调递增 ✓")
-            else:
-                print("  警告: 积分热容不是单调递增的")
-            
-            # 分析积分结构函数的阶梯状特性
-            if len(cumulative_Cth) > 1:
-                steps = np.diff(cumulative_Cth)
-                print(f"  积分热容阶梯数: {len(steps)}")
-                print(f"  阶梯高度范围: {steps.min():.2e} - {steps.max():.2e} Ws/K")
-                print(f"  平均阶梯高度: {steps.mean():.2e} Ws/K")
-                print(f"  阶梯高度标准差: {steps.std():.2e} Ws/K")
-                
-                # 检查阶梯的均匀性
-                step_ratio = steps.max() / steps.min() if steps.min() > 0 else float('inf')
-                print(f"  阶梯高度比值 (max/min): {step_ratio:.2e}")
-                
-                if step_ratio < 10:
-                    print("  阶梯高度分布相对均匀 ✓")
-                elif step_ratio < 100:
-                    print("  阶梯高度分布中等不均匀")
-                else:
-                    print("  警告: 阶梯高度分布极不均匀")
-                
-                # 检查零阶梯（平台）
-                zero_steps = np.sum(steps == 0)
-                small_steps = np.sum(steps < 1e-10)
-                print(f"  零阶梯数: {zero_steps}")
-                print(f"  极小阶梯数 (<1e-10): {small_steps}")
-                
-                if zero_steps == 0 and small_steps < len(steps) * 0.1:
-                    print("  积分结构函数阶梯状特性正常 ✓")
-                else:
-                    print("  警告: 积分结构函数可能存在异常的平台或极小阶梯")
-            
-        print("=== 热容值分布分析结束 ===\n")
 
     def full_analysis(self, file_path, ambient_temp=25.0):
         """执行完整分析流程"""
@@ -1029,20 +1064,17 @@ class ThermalAnalysisProcessor:
         if not self.discrete_time_constant_spectrum():
             return False
 
+        self.manual_handler()
+
         # 尝试连分式展开法进行Foster到Cauer转换
         if not self.foster_to_cauer():
             return False
 
         # 基于Cauer网络计算结构函数
         if not self.calculate_structure_functions():
-            # 如果主要方法失败，尝试备选方法
-            if not self.calculate_structure_functions_alternative():
-                print("警告: 结构函数计算失败")
-                return False
-
-        # 添加调试信息
-        # self.debug_structure_functions()
-        # self.analyze_thermal_capacity_distribution()
-        # self.analyze_cumulative_thermal_capacity_issue()
+            # # 如果主要方法失败，尝试备选方法
+            # if not self.calculate_structure_functions_alternative():
+            #     print("警告: 结构函数计算失败")
+            return False
 
         return True

@@ -26,14 +26,18 @@ class ThermalAnalysisView(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.processor = ThermalAnalysisProcessor()
         # 初始化属性
         self.ambient_temp = 25.0  # 默认环境温度
         self.ploss = 1.0  # 默认损耗功率
         self.delta_z = 0.05  # 默认对数间隔
         self.num_iterations = 500  # 默认迭代次数
         self.discrete_order = 45  # 默认离散阶数
+        self.precision = 'float64'  # 默认计算精度
         self.results = {}  # 初始化结果字典
+
+        # 创建处理器实例
+        self.processor = ThermalAnalysisProcessor(precision=self.precision)
+
         self.init_ui()
         self.setWindowTitle("贝叶斯反卷积热分析系统")
         self.setGeometry(100, 100, 1200, 800)
@@ -114,9 +118,20 @@ class ThermalAnalysisView(QMainWindow):
         delta_z_layout.addWidget(self.delta_z_slider)
         delta_z_layout.addWidget(self.delta_z_value)
 
+        # 计算精度
+        precision_layout = QVBoxLayout()
+        precision_layout.addWidget(QLabel("计算精度"))
+        from PyQt5.QtWidgets import QComboBox
+        self.precision_combo = QComboBox()
+        self.precision_combo.addItems(['float64', 'float32'])
+        self.precision_combo.setCurrentText(self.precision)
+        self.precision_combo.currentTextChanged.connect(self.update_precision)
+        precision_layout.addWidget(self.precision_combo)
+
         param_layout.addLayout(ploss_layout)
         param_layout.addLayout(ambient_layout)
         param_layout.addLayout(delta_z_layout)
+        param_layout.addLayout(precision_layout)
 
         # 分析按钮
         self.analyze_btn = QPushButton("开始分析")
@@ -231,6 +246,13 @@ class ThermalAnalysisView(QMainWindow):
         delta_z = value / 100.0
         self.delta_z_value.setText(f"{delta_z:.2f}")
         self.processor.delta_z = delta_z
+
+    def update_precision(self, precision):
+        """更新计算精度"""
+        self.precision = precision
+        # 重新创建处理器实例以应用新的精度设置
+        self.processor = ThermalAnalysisProcessor(precision=self.precision)
+        print(f"计算精度已更新为: {precision}")
 
     def run_analysis(self):
         """运行分析"""
@@ -423,7 +445,7 @@ class ThermalAnalysisView(QMainWindow):
             # 积分结构函数
             cumulative_Rth = self.processor.results['cumulative_Rth']
             cumulative_Cth = self.processor.results['cumulative_Cth']
-            
+
             # 过滤有效数据（正值且有限值）
             mask1 = (cumulative_Rth > 0) & (cumulative_Cth > 0) & np.isfinite(cumulative_Rth) & np.isfinite(cumulative_Cth)
             if np.any(mask1):
@@ -442,6 +464,16 @@ class ThermalAnalysisView(QMainWindow):
             differential_Rth = self.processor.results['differential_Rth']
             differential_Cth = self.processor.results['differential_Cth']
             
+            # 确保转换为numpy数组
+            try:
+                differential_Rth = np.array(differential_Rth, dtype=float)
+                differential_Cth = np.array(differential_Cth, dtype=float)
+            except (ValueError, TypeError) as e:
+                print(f"警告: 微分结构函数数据转换失败: {e}")
+                # 如果微分数据转换失败，只显示积分结构函数
+                differential_Rth = np.array([])
+                differential_Cth = np.array([])
+            
             # 过滤有效数据（正值且有限值）
             mask2 = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(differential_Rth) & np.isfinite(differential_Cth)
             if np.any(mask2):
@@ -457,12 +489,16 @@ class ThermalAnalysisView(QMainWindow):
                 ax2.set_title('微分结构函数', fontsize=12, fontweight='bold')
 
             # 添加统计信息
-            if 'tau_sorted' in self.processor.results:
-                tau_sorted = self.processor.results['tau_sorted']
-                valid_tau = tau_sorted[tau_sorted > 0]
-                if len(valid_tau) > 0:
-                    info_text = f"时间常数范围: {valid_tau.min():.2e} - {valid_tau.max():.2e} s"
-                    self.fig4.suptitle(info_text, fontsize=10, y=0.95)
+            info_text = ""
+            if len(cumulative_Rth) > 0:
+                info_text += f"积分数据点: {len(cumulative_Rth)}"
+            if len(differential_Rth) > 0:
+                if info_text:
+                    info_text += " | "
+                info_text += f"微分数据点: {len(differential_Rth)}"
+            
+            if info_text:
+                self.fig4.suptitle(info_text, fontsize=10, y=0.95)
 
             # 设置图表格式
             for ax in [ax1, ax2]:
