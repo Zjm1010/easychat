@@ -1,5 +1,4 @@
 import os
-import statistics
 
 import matplotlib as mpl
 import matplotlib.font_manager as fm
@@ -10,8 +9,8 @@ import sympy as sp
 from matplotlib import ticker
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
-from sympy import Poly, symbols
-
+from sympy import Poly, Expr, fraction, expand, together, nsimplify
+from sympy.polys.polyerrors import PolynomialError
 # 配置字体支持
 def setup_fonts():
     """设置字体支持，优先中文字体，同时支持Unicode字符"""
@@ -581,24 +580,38 @@ class ThermalAnalysisProcessor:
     def calc_parallel_c(self, s, numy, deny):
         """
         计算并联热容参数（等效于Matlab的calcParallelC函数）
-
         参数：
         s: 符号变量
         numY: 分子多项式表达式
         denY: 分母多项式表达式
-
         返回：
         c: 首项系数比值
         """
-        # 将表达式转换为多项式并提取首项系数
-        num_poly = Poly(numy, s)
-        den_poly = Poly(deny, s)
+        try:
+            # 将表达式转换为多项式并提取首项系数
+            num_poly = Poly(numy, s)
+            den_poly = Poly(deny, s)
 
-        # 获取最高次项的系数
-        leading_coeff_num = num_poly.coeffs()[0]
-        leading_coeff_den = den_poly.coeffs()[0]
+            # 检查多项式是否为空或系数是否为空
+            num_coeffs = num_poly.coeffs()
+            den_coeffs = den_poly.coeffs()
 
-        return leading_coeff_num / leading_coeff_den
+            if len(num_coeffs) == 0 or len(den_coeffs) == 0:
+                print("警告: 多项式系数为空")
+                return 0
+            # 获取最高次项的系数
+            leading_coeff_num = num_coeffs[0]
+            leading_coeff_den = den_coeffs[0]
+            # 检查分母系数是否为零
+            if leading_coeff_den == 0:
+                print("警告: 分母系数为零")
+                return 0
+            return leading_coeff_num / leading_coeff_den
+        except Exception as e:
+            print(f"calc_parallel_c 计算错误: {e}")
+            print(f"numy: {numy}")
+            print(f"deny: {deny}")
+            return 0
 
     def calc_series_r(self, s, numz, denz):
         """
@@ -612,28 +625,68 @@ class ThermalAnalysisProcessor:
         返回：
         r: 首项系数比值
         """
-        # 将表达式转换为多项式并提取首项系数
-        num_poly = Poly(numz, s)
-        den_poly = Poly(denz, s)
-        # 获取最高次项的系数
-        leading_coeff_num = num_poly.coeffs()[0]
-        leading_coeff_den = den_poly.coeffs()[0]
-        return leading_coeff_num / leading_coeff_den
+        try:
+            # 将表达式转换为多项式并提取首项系数
+            num_poly = Poly(numz, s)
+            den_poly = Poly(denz, s)
+
+            # 检查多项式是否为空或系数是否为空
+            num_coeffs = num_poly.coeffs()
+            den_coeffs = den_poly.coeffs()
+
+            if len(num_coeffs) == 0 or len(den_coeffs) == 0:
+                print("警告: 多项式系数为空")
+                return 0
+
+            # 获取最高次项的系数
+            leading_coeff_num = num_coeffs[0]
+            leading_coeff_den = den_coeffs[0]
+
+            # 检查分母系数是否为零
+            if leading_coeff_den == 0:
+                print("警告: 分母系数为零")
+                return 0
+
+            return leading_coeff_num / leading_coeff_den
+
+        except Exception as e:
+            print(f"calc_series_r 计算错误: {e}")
+            print(f"numz: {numz}")
+            print(f"denz: {denz}")
+            return 0
 
     def manual_handler(self):
-        foster_rth = self.results['fosterRth']
-        foster_cth = self.results['fosterCth']
-        foster_rth[0] = 0.001
-        foster_rth[1] = 0.001
-        foster_rth[2] = 0.001
-        foster_cth[0] = 0.001
-        foster_cth[1] = 0.001
-        foster_cth[2] = 0.001
-        foster_cth[3] = 0.001
-        foster_cth[4] = 0.001
-        foster_cth[5] = 0.001
+        """手动调整Foster网络参数，确保参数合理且不会导致计算问题"""
+        foster_rth = self.results['fosterRth'].copy()  # 创建副本避免修改原始数据
+        foster_cth = self.results['fosterCth'].copy()
+
+        # 确保参数不为零或过小，避免数值计算问题
+        min_rth = 1e-6  # 最小热阻值
+        min_cth = 1e-6  # 最小热容值
+
+        # 调整前几个参数，但保持合理的比例关系
+        if len(foster_rth) >= 3:
+            foster_rth[0] = max(foster_rth[0], min_rth)
+            foster_rth[1] = max(foster_rth[1], min_rth)
+            foster_rth[2] = max(foster_rth[2], min_rth)
+
+        if len(foster_cth) >= 6:
+            foster_cth[0] = max(foster_cth[0], min_cth)
+            foster_cth[1] = max(foster_cth[1], min_cth)
+            foster_cth[2] = max(foster_cth[2], min_cth)
+            foster_cth[3] = max(foster_cth[3], min_cth)
+            foster_cth[4] = max(foster_cth[4], min_cth)
+            foster_cth[5] = max(foster_cth[5], min_cth)
+
+        # 确保所有参数都是有限的正数
+        foster_rth = np.where((foster_rth > 0) & np.isfinite(foster_rth), foster_rth, min_rth)
+        foster_cth = np.where((foster_cth > 0) & np.isfinite(foster_cth), foster_cth, min_cth)
+
         self.results['fosterRth'] = foster_rth
         self.results['fosterCth'] = foster_cth
+
+        print(f"手动调整完成: 热阻范围 {foster_rth.min():.2e} - {foster_rth.max():.2e} K/W")
+        print(f"热容范围 {foster_cth.min():.2e} - {foster_cth.max():.2e} Ws/K")
 
     def foster_to_cauer(self):
         """根据Matlab代码逻辑重写的Foster到Cauer网络转换方法 - 使用最大公因子辗转相除法"""
@@ -651,7 +704,7 @@ class ThermalAnalysisProcessor:
 
         # 提取 Y(s) 的分子和分母多项式
         try:
-            numY, denY = sp.fraction(sp.expand(Ys))
+            numY, denY = self.normalized_numden(Ys, s, tol=1e-50)
             numY = sp.collect(numY, s)  # 简化分子
             denY = sp.collect(denY, s)  # 简化分母
         except Exception as e:
@@ -677,15 +730,25 @@ class ThermalAnalysisProcessor:
                 
                 # 更新复导纳的分子
                 numY = sp.expand(numY - c * s * denY)
-                
+                if sp.expand(numY) == 0:
+                    print(f"迭代 {i+1}: 更新后的分子为零，停止迭代")
+                    break
                 # 计算更新后的复阻抗 Z(s)
-                Zs = 1 / (numY / denY)
+                try:
+                    Zs = 1 / (numY / denY)
+                except Exception as e:
+                    print(f"迭代 {i + 1}: 计算Z(s)时出错: {e}")
+                    break
 
                 # 提取Z(s)的分子和分母多项式
-                numZ, denZ = sp.fraction(sp.expand(Zs))
-                numZ = sp.collect(numZ, s)  # 简化分子
-                denZ = sp.collect(denZ, s)  # 简化分母
-                
+                try:
+                    numZ, denZ = self.normalized_numden(Zs, s, tol=1e-50)
+                    numZ = sp.collect(numZ, s)  # 简化分子
+                    denZ = sp.collect(denZ, s)  # 简化分母
+                except Exception as e:
+                    print(f"迭代 {i + 1}: 提取Z(s)分子分母时出错: {e}")
+                    break
+
                 # 计算串联热阻参数
                 r = self.calc_series_r(s, numZ, denZ)
                 if r == 0 or not sp.simplify(r).is_finite:
@@ -752,6 +815,81 @@ class ThermalAnalysisProcessor:
             self.results['cauerRth'] = cauerRth
             self.results['cauerCth'] = cauerCth
             return False
+
+    @staticmethod
+    def normalized_numden(expr: Expr, s, tol=1e-50) -> (Expr, Expr):
+        """
+        规范化提取分子分母，特别处理高次小系数多项式
+
+        参数：
+        expr: SymPy表达式
+        s: 符号变量
+        tol: 系数截断阈值
+
+        返回：
+        (num, den): 分子和分母表达式
+        """
+        try:
+            # 1. 数值稳定化处理
+            expr = nsimplify(expr, rational=True)  # 尝试转换为有理数
+            expr = expr.evalf()  # 转换为浮点数表达式
+
+            # 2. 展开并规范化表达式
+            expr = expand(expr)
+            expr = together(expr)
+
+            # 3. 安全提取分子分母
+            if expr.is_rational_function():
+                num, den = fraction(expr)
+            else:
+                num = expr
+                den = sp.Integer(1)
+
+            # 4. 系数截断处理
+            def truncate_coeffs(poly_expr, var):
+                """截断极小系数项"""
+                if not poly_expr.is_polynomial(var):
+                    return poly_expr
+
+                # 转换为多项式并处理系数
+                poly = Poly(poly_expr, var)
+                coeffs = poly.all_coeffs()
+
+                # 截断极小系数
+                truncated_coeffs = [
+                    coef if abs(coef) > tol else 0
+                    for coef in coeffs
+                ]
+
+                # 重建多项式
+                return sum(
+                    c * var ** i
+                    for i, c in enumerate(reversed(truncated_coeffs))
+                    if c != 0
+                )
+
+            # 应用截断
+            num = truncate_coeffs(num, s)
+            den = truncate_coeffs(den, s)
+
+            # 5. 对分母进行首项系数规范化
+            try:
+                den_poly = Poly(den, s)
+                if den_poly.is_zero:
+                    raise ValueError("分母不能为零")
+
+                lc = den_poly.LC()
+                if lc != 1 and lc != 0:
+                    num = num / lc
+                    den = den / lc
+            except PolynomialError:
+                # 非多项式分母，跳过规范化
+                pass
+
+            return num, den
+
+        except Exception as e:
+            raise RuntimeError(f"提取分子分母时出错: {str(e)}\n表达式: {expr}") from e
 
     def calculate_structure_functions(self):
         """计算结构函数 - 基于Cauer网络参数
@@ -891,8 +1029,8 @@ class ThermalAnalysisProcessor:
                         differential_Rth = differential_Rth[:max_valid_index]
                         differential_Cth = differential_Cth[:max_valid_index]
 
-        # 保存结果
-        self.results['cumulative_Rth'] = cumulative_Rth[valid_mask]
+        # 保存结果 - 直接保存处理后的数组，不再使用valid_mask索引
+        self.results['cumulative_Rth'] = cumulative_Rth
         self.results['cumulative_Cth'] = cumulative_Cth
         self.results['differential_Rth'] = differential_Rth
         self.results['differential_Cth'] = differential_Cth
@@ -1064,7 +1202,7 @@ class ThermalAnalysisProcessor:
         if not self.discrete_time_constant_spectrum():
             return False
 
-        self.manual_handler()
+        # self.manual_handler()
 
         # 尝试连分式展开法进行Foster到Cauer转换
         if not self.foster_to_cauer():

@@ -455,7 +455,7 @@ class ThermalAnalysisView(QMainWindow):
                 ax1.set_ylabel('积分热容 ∑Cth (Ws/K)', fontsize=10)
                 ax1.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
-                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e130)
+                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e12)
             else:
                 ax1.text(0.5, 0.5, '无有效数据', transform=ax1.transAxes, ha='center', va='center')
                 ax1.set_title('积分结构函数', fontsize=12, fontweight='bold')
@@ -483,7 +483,7 @@ class ThermalAnalysisView(QMainWindow):
                 ax2.set_ylabel('热容 Cth (Ws/K)', fontsize=10)
                 ax2.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
-                ax2.set_ylim(bottom=ax2.get_ylim()[0], top=1e140)
+                ax2.set_ylim(bottom=ax2.get_ylim()[0], top=1e12)
             else:
                 ax2.text(0.5, 0.5, '无有效数据', transform=ax2.transAxes, ha='center', va='center')
                 ax2.set_title('微分结构函数', fontsize=12, fontweight='bold')
