@@ -13,74 +13,69 @@ from sympy import Poly, Expr, fraction, expand, together, nsimplify
 from sympy.polys.polyerrors import PolynomialError
 # 配置字体支持
 def setup_fonts():
-    """设置字体支持，优先中文字体，同时支持Unicode字符"""
+    """Setup font support for English fonts only"""
     try:
-        # 设置全局字体配置
-        plt.rcParams['axes.unicode_minus'] = False  # 关键：使用ASCII减号而不是Unicode负号
+        # Set global font configuration
+        plt.rcParams['axes.unicode_minus'] = False  # Use ASCII minus instead of Unicode minus
         plt.rcParams['text.usetex'] = False
         plt.rcParams['mathtext.fontset'] = 'cm'
         plt.rcParams['font.family'] = 'sans-serif'
         plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
-        # 尝试手动设置字体
-        chinese_fonts = ['SimHei', 'Microsoft YaHei', 'SimSun', 'KaiTi', 'FangSong', 'DejaVu Sans']
+        
+        # English fonts only
+        english_fonts = ['DejaVu Sans', 'Arial', 'Helvetica', 'Liberation Sans', 'FreeSans']
 
-        # 检查并选择可用的字体
+        # Check and select available fonts
         available_fonts = []
-        for font_name in chinese_fonts:
+        for font_name in english_fonts:
             try:
                 font_path = fm.findfont(fm.FontProperties(family=font_name))
                 if font_path and os.path.exists(font_path):
                     available_fonts.append(font_name)
-                    # 特别处理微软雅黑 - 它包含减号字符
-                    if "Microsoft YaHei" in font_path or "微软雅黑" in font_path:
+                    # Use DejaVu Sans as it handles minus signs well
+                    if "DejaVu Sans" in font_path:
                         plt.rcParams['font.sans-serif'] = [font_name]
-                        print(f"使用支持负号的字体: Microsoft YaHei")
+                        print(f"Using DejaVu Sans font for minus sign support")
                         return True
             except Exception as e:
-                print(f"检查字体 {font_name} 时出错: {e}")
+                print(f"Error checking font {font_name}: {e}")
                 continue
 
-        # 如果有可用的字体，使用第一个
+        # If available fonts found, use the first one
         if available_fonts:
             plt.rcParams['font.sans-serif'] = [available_fonts[0]]
-            print(f"使用可用字体: {available_fonts[0]}")
+            print(f"Using available font: {available_fonts[0]}")
             return True
 
-        # 如果找不到其他字体，使用DejaVu Sans并确保包含数学符号
+        # Fallback: use DejaVu Sans if available
         try:
-            # 添加DejaVu Sans路径（如果可用）
             dejavu_path = fm.findfont('DejaVu Sans')
             if dejavu_path:
                 plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
                 plt.rcParams['axes.unicode_minus'] = False
-                print(f"使用DejaVu Sans字体解决负号问题")
+                print(f"Using DejaVu Sans font for minus sign support")
                 return True
         except:
             pass
 
-        # 最后的备份方案：强制使用系统默认字体并处理负号
-        print("未找到任何合适字体，强制使用系统默认字体并替代负号")
+        # Final fallback: use system default font
+        print("No suitable fonts found, using system default font")
         return False
 
     except Exception as e:
-        print(f"字体设置错误: {e}")
+        print(f"Font setup error: {e}")
         return False
 
 
 def safe_set_text(ax, xlabel=None, ylabel=None, title=None):
-    """安全设置图表文本，支持中英文回退，处理负号问题"""
+    """Safely set chart text, handle minus sign issues"""
     try:
-        # 尝试使用指定字体
+        # Set font for all text properties
         for prop in [ax.xaxis.label, ax.yaxis.label, ax.title]:
-            if 'Microsoft YaHei' in fm.FontProperties(fname=prop.get_fontname()).get_name():
-                prop.set_family('Microsoft YaHei')
-            elif 'SimHei' in fm.FontProperties(fname=prop.get_fontname()).get_name():
-                prop.set_family('SimHei')
-            else:
-                prop.set_family('DejaVu Sans')
-                prop.set_size(10)  # 小字号更安全
+            prop.set_family('DejaVu Sans')
+            prop.set_size(10)  # Safe font size
 
-        # 正常设置标签
+        # Set labels normally
         if xlabel:
             ax.set_xlabel(xlabel)
         if ylabel:
@@ -88,48 +83,48 @@ def safe_set_text(ax, xlabel=None, ylabel=None, title=None):
         if title:
             ax.set_title(title)
 
-        # 强制使用ASCII减号
+        # Force ASCII minus signs
         ax.xaxis.set_major_formatter(mpl.ticker.ScalarFormatter(useMathText=True))
         ax.yaxis.set_major_formatter(mpl.ticker.ScalarFormatter(useMathText=True))
 
         return True
     except:
-        # 如果失败，使用简化的英文标签
+        # If failed, return False
         return False
 
 
 def setup_plot_formatting(ax):
-    """设置图表格式，解决Unicode负号问题"""
+    """Setup plot formatting, handle Unicode minus sign issues"""
     try:
-        # 确保ax是有效的Axes对象
+        # Ensure ax is a valid Axes object
         if not hasattr(ax, 'xaxis'):
             return
 
-        # 设置数字格式，避免Unicode负号问题
+        # Set number formatting to avoid Unicode minus sign issues
         import matplotlib.ticker as ticker
 
-        # 使用安全的方法处理科学计数法格式
+        # Safe method to handle scientific notation formatting
         def safe_sci_formatter(val, pos=None):
-            """安全格式化科学计数法数字，处理负号问题"""
+            """Safely format scientific notation numbers, handle minus sign issues"""
             s = f"{val:.1e}"
-            s = s.replace('−', '-')  # 替换Unicode负号
-            s = s.replace('e-', '×10⁻')  # 替换科学计数法表示
-            s = s.replace('e+', '×10⁺')  # 替换科学计数法表示
+            s = s.replace('−', '-')  # Replace Unicode minus sign
+            s = s.replace('e-', '×10⁻')  # Replace scientific notation
+            s = s.replace('e+', '×10⁺')  # Replace scientific notation
             return s
 
-        # 使用安全的方法处理常规数字格式
+        # Safe method to handle regular number formatting
         def safe_minus_formatter(val, pos=None):
-            """安全格式化常规数字，处理负号问题"""
+            """Safely format regular numbers, handle minus sign issues"""
             s = f"{val:.2f}"
-            return s.replace('−', '-')  # 替换Unicode负号
+            return s.replace('−', '-')  # Replace Unicode minus sign
 
-        # 创建科学计数法和常规数字格式化器
+        # Create scientific notation and regular number formatters
         sci_formatter = ticker.FuncFormatter(lambda val, pos: safe_sci_formatter(val, pos))
         num_formatter = ticker.FuncFormatter(lambda val, pos: safe_minus_formatter(val, pos))
 
-        # 为坐标轴设置格式化器
+        # Set formatters for axes
         if hasattr(ax.xaxis, 'set_major_formatter'):
-            # 如果数值范围较大，使用科学计数法格式化
+            # If value range is large, use scientific notation formatting
             x_range = np.ptp(ax.get_xlim())
             if x_range > 1e3:
                 ax.xaxis.set_major_formatter(sci_formatter)
@@ -137,21 +132,21 @@ def setup_plot_formatting(ax):
                 ax.xaxis.set_major_formatter(num_formatter)
 
         if hasattr(ax.yaxis, 'set_major_formatter'):
-            # 如果数值范围较大，使用科学计数法格式化
+            # If value range is large, use scientific notation formatting
             y_range = np.ptp(ax.get_ylim())
             if y_range > 1e3:
                 ax.yaxis.set_major_formatter(sci_formatter)
             else:
                 ax.yaxis.set_major_formatter(num_formatter)
 
-        # 设置刻度标签格式
+        # Set tick label format
         if hasattr(ax, 'tick_params'):
             ax.tick_params(axis='both', which='major', labelsize=10)
             ax.tick_params(axis='both', which='minor', labelsize=8)
 
     except Exception as e:
-        print(f"图表格式设置错误: {e}")
-        # 如果失败，回退到全局设置
+        print(f"Plot formatting setup error: {e}")
+        # If failed, fallback to global settings
         plt.rcParams['axes.unicode_minus'] = False
 
 

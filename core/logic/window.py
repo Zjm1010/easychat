@@ -39,7 +39,7 @@ class ThermalAnalysisView(QMainWindow):
         self.processor = ThermalAnalysisProcessor(precision=self.precision)
 
         self.init_ui()
-        self.setWindowTitle("贝叶斯反卷积热分析系统")
+        self.setWindowTitle("Bayesian Deconvolution Thermal Analysis System")
         self.setGeometry(100, 100, 1200, 800)
 
     def init_ui(self):
@@ -52,11 +52,11 @@ class ThermalAnalysisView(QMainWindow):
 
         # 标题
         title_layout = QVBoxLayout()
-        title_label = QLabel("贝叶斯反卷积热分析系统")
+        title_label = QLabel("Bayesian Deconvolution Thermal Analysis System")
         title_label.setAlignment(Qt.AlignCenter)
         title_label.setStyleSheet("font-size: 24pt; font-weight: bold; margin: 10px 0;")
 
-        subtitle_label = QLabel("基于结构函数法的热阻提取与分析")
+        subtitle_label = QLabel("Thermal Resistance Extraction and Analysis Based on Structure Function Method")
         subtitle_label.setAlignment(Qt.AlignCenter)
         subtitle_label.setStyleSheet("font-size: 14pt; color: #666; margin-bottom: 20px;")
 
@@ -65,7 +65,7 @@ class ThermalAnalysisView(QMainWindow):
         main_layout.addLayout(title_layout)
 
         # 控制面板
-        control_group = QGroupBox("控制面板")
+        control_group = QGroupBox("Control Panel")
         control_layout = QVBoxLayout(control_group)
         control_layout.setContentsMargins(15, 15, 15, 15)
         control_group.setStyleSheet(
@@ -75,13 +75,13 @@ class ThermalAnalysisView(QMainWindow):
 
         # 文件选择
         file_layout = QHBoxLayout()
-        self.file_label = QLabel("未选择文件")
+        self.file_label = QLabel("No file selected")
         self.file_label.setStyleSheet("border: 1px solid #ddd; padding: 5px; border-radius: 4px;")
-        self.browse_btn = QPushButton("浏览...")
+        self.browse_btn = QPushButton("Browse...")
         self.browse_btn.setStyleSheet("padding: 5px 15px;")
         self.browse_btn.clicked.connect(self.browse_file)
 
-        file_layout.addWidget(QLabel("数据文件:"))
+        file_layout.addWidget(QLabel("Data File:"))
         file_layout.addWidget(self.file_label, 1)
         file_layout.addWidget(self.browse_btn)
 
@@ -90,7 +90,7 @@ class ThermalAnalysisView(QMainWindow):
 
         # 损耗功率
         ploss_layout = QVBoxLayout()
-        ploss_layout.addWidget(QLabel("损耗功率 (W)"))
+        ploss_layout.addWidget(QLabel("Power Loss (W)"))
         self.ploss_slider = QSlider(Qt.Horizontal)
         self.ploss_slider.setRange(1, 100)
         self.ploss_slider.setValue(10)
@@ -100,7 +100,7 @@ class ThermalAnalysisView(QMainWindow):
 
         # 环境温度
         ambient_layout = QVBoxLayout()
-        ambient_layout.addWidget(QLabel("环境温度 (°C)"))
+        ambient_layout.addWidget(QLabel("Ambient Temperature (°C)"))
         self.ambient_slider = QSlider(Qt.Horizontal)
         self.ambient_slider.setRange(0, 100)
         self.ambient_slider.setValue(25)
@@ -110,7 +110,7 @@ class ThermalAnalysisView(QMainWindow):
 
         # 对数间隔
         delta_z_layout = QVBoxLayout()
-        delta_z_layout.addWidget(QLabel("对数间隔 Δz"))
+        delta_z_layout.addWidget(QLabel("Log Interval Δz"))
         self.delta_z_slider = QSlider(Qt.Horizontal)
         self.delta_z_slider.setRange(1, 100)
         self.delta_z_slider.setValue(5)
@@ -120,7 +120,7 @@ class ThermalAnalysisView(QMainWindow):
 
         # 计算精度
         precision_layout = QVBoxLayout()
-        precision_layout.addWidget(QLabel("计算精度"))
+        precision_layout.addWidget(QLabel("Calculation Precision"))
         from PyQt5.QtWidgets import QComboBox
         self.precision_combo = QComboBox()
         self.precision_combo.addItems(['float64', 'float32'])
@@ -134,7 +134,7 @@ class ThermalAnalysisView(QMainWindow):
         param_layout.addLayout(precision_layout)
 
         # 分析按钮
-        self.analyze_btn = QPushButton("开始分析")
+        self.analyze_btn = QPushButton("Start Analysis")
         self.analyze_btn.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold; "
             "font-size: 14pt; padding: 10px; border-radius: 8px;"
@@ -160,10 +160,10 @@ class ThermalAnalysisView(QMainWindow):
         self.tab3 = QWidget()
         self.tab4 = QWidget()
 
-        self.tab_widget.addTab(self.tab1, "原始数据")
-        self.tab_widget.addTab(self.tab2, "对数插值")
-        self.tab_widget.addTab(self.tab3, "时间常数谱")
-        self.tab_widget.addTab(self.tab4, "结构函数")
+        self.tab_widget.addTab(self.tab1, "Original Data")
+        self.tab_widget.addTab(self.tab2, "Log Interpolation")
+        self.tab_widget.addTab(self.tab3, "Time Constant Spectrum")
+        self.tab_widget.addTab(self.tab4, "Structure Function")
 
         # 设置标签页布局
         self.setup_tab1()
@@ -223,7 +223,7 @@ class ThermalAnalysisView(QMainWindow):
     def browse_file(self):
         """浏览文件"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择数据文件", "", "Excel Files (*.xlsx *.xls);;All Files (*)"
+            self, "Select Data File", "", "Excel Files (*.xlsx *.xls);;All Files (*)"
         )
 
         if file_path:
@@ -288,9 +288,9 @@ class ThermalAnalysisView(QMainWindow):
 
             # 直接设置标签，不使用safe_set_text函数
             try:
-                ax.set_xlabel('时间 (s)', fontsize=12)
-                ax.set_ylabel('结温 (°C)', fontsize=12)
-                ax.set_title('原始温度数据', fontsize=14, fontweight='bold')
+                ax.set_xlabel('Time (s)', fontsize=12)
+                ax.set_ylabel('Junction Temperature (°C)', fontsize=12)
+                ax.set_title('Original Temperature Data', fontsize=14, fontweight='bold')
             except Exception as e:
                 print(f"设置标签时出错: {e}")
                 # 使用英文标签作为备选
@@ -306,16 +306,16 @@ class ThermalAnalysisView(QMainWindow):
 
             # 添加网格
             ax.grid(True, linestyle='--', alpha=0.7)
-            
+
             # 确保标签可见
             ax.tick_params(axis='both', which='major', labelsize=10)
             ax.tick_params(axis='both', which='minor', labelsize=8)
 
         else:
             # 如果没有数据，显示提示信息
-            ax.text(0.5, 0.5, '请先加载数据文件', 
-                   transform=ax.transAxes, ha='center', va='center', fontsize=14)
-            ax.set_title('原始数据', fontsize=16, fontweight='bold')
+            ax.text(0.5, 0.5, 'Please load data file first',
+                    transform=ax.transAxes, ha='center', va='center', fontsize=14)
+            ax.set_title('Original Data', fontsize=16, fontweight='bold')
 
         self.fig1.tight_layout()
         self.canvas1.draw()
@@ -330,7 +330,7 @@ class ThermalAnalysisView(QMainWindow):
             try:
                 ax1.set_xlabel('z = ln(t)', fontsize=12)
                 ax1.set_ylabel('a(z) = Zth(t=exp(z))', fontsize=12)
-                ax1.set_title('对数时间轴上的原始数据', fontsize=14, fontweight='bold')
+                ax1.set_title('Original Data on Log Time Axis', fontsize=14, fontweight='bold')
             except:
                 ax1.set_xlabel('z = ln(t)', fontsize=12)
                 ax1.set_ylabel('a(z) = Zth(t=exp(z))', fontsize=12)
@@ -342,9 +342,9 @@ class ThermalAnalysisView(QMainWindow):
             ax2 = self.fig2.add_subplot(212)
             ax2.plot(self.processor.results['z_bayesian'], self.processor.results['az_bayesian'], 'g-', linewidth=2)
             try:
-                ax2.set_xlabel('均匀插值的 z', fontsize=12)
-                ax2.set_ylabel('插值后的 a(z)', fontsize=12)
-                ax2.set_title('均匀插值后的对数时间数据', fontsize=14, fontweight='bold')
+                ax2.set_xlabel('Uniformly Interpolated z', fontsize=12)
+                ax2.set_ylabel('Interpolated a(z)', fontsize=12)
+                ax2.set_title('Uniformly Interpolated Log Time Data', fontsize=14, fontweight='bold')
             except:
                 ax2.set_xlabel('Interpolated z', fontsize=12)
                 ax2.set_ylabel('Interpolated a(z)', fontsize=12)
@@ -354,10 +354,10 @@ class ThermalAnalysisView(QMainWindow):
         else:
             # 如果没有数据，显示提示信息
             ax = self.fig2.add_subplot(111)
-            ax.text(0.5, 0.5, '请先运行分析以生成插值数据', 
-                   transform=ax.transAxes, ha='center', va='center', fontsize=14)
-            ax.set_title('对数插值', fontsize=16, fontweight='bold')
-            
+            ax.text(0.5, 0.5, 'Please run analysis to generate interpolation data',
+                    transform=ax.transAxes, ha='center', va='center', fontsize=14)
+            ax.set_title('Log Interpolation', fontsize=16, fontweight='bold')
+
         self.fig2.tight_layout()
         self.canvas2.draw()
 
@@ -379,8 +379,8 @@ class ThermalAnalysisView(QMainWindow):
             az_bayesian = self.processor.results['az_bayesian']
             ax1.semilogx(t_bayesian, az_bayesian, 'b-', linewidth=2)
             try:
-                ax1.set_title('瞬态热阻抗 Zth', fontsize=12, fontweight='bold')
-                ax1.set_xlabel('时间 (s)', fontsize=10)
+                ax1.set_title('Transient thermal impedance Zth', fontsize=12, fontweight='bold')
+                ax1.set_xlabel('Time (s)', fontsize=10)
                 ax1.set_ylabel('Zth (K/W)', fontsize=10)
             except:
                 ax1.set_title('Transient Thermal Impedance Zth', fontsize=12, fontweight='bold')
@@ -393,10 +393,10 @@ class ThermalAnalysisView(QMainWindow):
             da_dz_bayesian = self.processor.results['da_dz_bayesian']
             da_dz_bayesian_smoothed = self.processor.results['da_dz_bayesian_smoothed']
             z_bayesian = self.processor.results['z_bayesian']
-            ax2.plot(z_bayesian[:-1], da_dz_bayesian, 'r-', alpha=0.5, label='原始导数')
-            ax2.plot(z_bayesian[:-1], da_dz_bayesian_smoothed, 'b-', linewidth=2, label='平滑后导数')
+            ax2.plot(z_bayesian[:-1], da_dz_bayesian, 'r-', alpha=0.5, label='Original derivative')
+            ax2.plot(z_bayesian[:-1], da_dz_bayesian_smoothed, 'b-', linewidth=2, label='Derivative after smoothing')
             try:
-                ax2.set_title('导数 da(z)/dz', fontsize=12, fontweight='bold')
+                ax2.set_title('Derivative da(z)/dz', fontsize=12, fontweight='bold')
                 ax2.set_xlabel('z = ln(t)', fontsize=10)
                 ax2.set_ylabel('da(z)/dz', fontsize=10)
             except:
@@ -411,8 +411,8 @@ class ThermalAnalysisView(QMainWindow):
             R = self.processor.results['R']
             ax3.semilogx(t_bayesian[:-1], R, 'g-', linewidth=2)
             try:
-                ax3.set_title('贝叶斯反卷积时间常数谱', fontsize=12, fontweight='bold')
-                ax3.set_xlabel('时间 (s)', fontsize=10)
+                ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
+                ax3.set_xlabel('Time (s)', fontsize=10)
                 ax3.set_ylabel('R(z)', fontsize=10)
             except:
                 ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
@@ -423,9 +423,9 @@ class ThermalAnalysisView(QMainWindow):
         else:
             # 如果没有数据，显示提示信息
             ax = self.fig3.add_subplot(111)
-            ax.text(0.5, 0.5, '请先运行分析以生成时间常数谱数据', 
+            ax.text(0.5, 0.5, 'Run time constant spectrum first',
                    transform=ax.transAxes, ha='center', va='center', fontsize=14)
-            ax.set_title('时间常数谱', fontsize=16, fontweight='bold')
+            ax.set_title('Time constant spectrum', fontsize=16, fontweight='bold')
             
         self.fig3.tight_layout()
         self.canvas3.draw()
@@ -450,15 +450,15 @@ class ThermalAnalysisView(QMainWindow):
             mask1 = (cumulative_Rth > 0) & (cumulative_Cth > 0) & np.isfinite(cumulative_Rth) & np.isfinite(cumulative_Cth)
             if np.any(mask1):
                 ax1.semilogy(cumulative_Rth[mask1], cumulative_Cth[mask1], 'b-o', linewidth=2, markersize=4)
-                ax1.set_title('积分结构函数', fontsize=12, fontweight='bold')
-                ax1.set_xlabel('积分热阻 ∑Rth (K/W)', fontsize=10)
-                ax1.set_ylabel('积分热容 ∑Cth (Ws/K)', fontsize=10)
+                ax1.set_title('Integral structure function', fontsize=12, fontweight='bold')
+                ax1.set_xlabel('thermal resistance ∑Rth (K/W)', fontsize=10)
+                ax1.set_ylabel('thermal capacity ∑Cth (Ws/K)', fontsize=10)
                 ax1.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
                 ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e3)
             else:
-                ax1.text(0.5, 0.5, '无有效数据', transform=ax1.transAxes, ha='center', va='center')
-                ax1.set_title('积分结构函数', fontsize=12, fontweight='bold')
+                ax1.text(0.5, 0.5, 'no valid data', transform=ax1.transAxes, ha='center', va='center')
+                ax1.set_title('Integral structure function', fontsize=12, fontweight='bold')
 
             # 微分结构函数
             differential_Rth = self.processor.results['differential_Rth']
@@ -478,24 +478,24 @@ class ThermalAnalysisView(QMainWindow):
             mask2 = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(differential_Rth) & np.isfinite(differential_Cth)
             if np.any(mask2):
                 ax2.semilogy(differential_Rth[mask2], differential_Cth[mask2], 'r-s', linewidth=2, markersize=4)
-                ax2.set_title('微分结构函数', fontsize=12, fontweight='bold')
-                ax2.set_xlabel('热阻 Rth (K/W)', fontsize=10)
-                ax2.set_ylabel('热容 Cth (Ws/K)', fontsize=10)
+                ax2.set_title('Differential structure function', fontsize=12, fontweight='bold')
+                ax2.set_xlabel('thermal resistance Rth (K/W)', fontsize=10)
+                ax2.set_ylabel('thermal capacity Cth (Ws/K)', fontsize=10)
                 ax2.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
                 ax2.set_ylim(bottom=ax2.get_ylim()[0], top=1e12)
             else:
-                ax2.text(0.5, 0.5, '无有效数据', transform=ax2.transAxes, ha='center', va='center')
-                ax2.set_title('微分结构函数', fontsize=12, fontweight='bold')
+                ax2.text(0.5, 0.5, 'no valid data', transform=ax2.transAxes, ha='center', va='center')
+                ax2.set_title('Differential structure function', fontsize=12, fontweight='bold')
 
             # 添加统计信息
             info_text = ""
             if len(cumulative_Rth) > 0:
-                info_text += f"积分数据点: {len(cumulative_Rth)}"
+                info_text += f"data point num: {len(cumulative_Rth)}"
             if len(differential_Rth) > 0:
                 if info_text:
                     info_text += " | "
-                info_text += f"微分数据点: {len(differential_Rth)}"
+                info_text += f"data point num: {len(differential_Rth)}"
             
             if info_text:
                 self.fig4.suptitle(info_text, fontsize=10, y=0.95)
@@ -508,9 +508,9 @@ class ThermalAnalysisView(QMainWindow):
         else:
             # 如果没有数据，显示提示信息
             ax = self.fig4.add_subplot(111)
-            ax.text(0.5, 0.5, '请先运行分析以生成结构函数数据', 
+            ax.text(0.5, 0.5, 'Run structure function first',
                    transform=ax.transAxes, ha='center', va='center', fontsize=14)
-            ax.set_title('结构函数', fontsize=16, fontweight='bold')
+            ax.set_title('structure function', fontsize=16, fontweight='bold')
 
         self.fig4.tight_layout()
         self.canvas4.draw()
