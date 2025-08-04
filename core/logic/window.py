@@ -451,8 +451,8 @@ class ThermalAnalysisView(QMainWindow):
             if np.any(mask1):
                 ax1.semilogy(cumulative_Rth[mask1], cumulative_Cth[mask1], 'b-o', linewidth=2, markersize=4)
                 ax1.set_title('Integral structure function', fontsize=12, fontweight='bold')
-                ax1.set_xlabel('thermal resistance ∑Rth (K/W)', fontsize=10)
-                ax1.set_ylabel('thermal capacity ∑Cth (Ws/K)', fontsize=10)
+                ax1.set_xlabel('Integral thermal resistance ∑Rth (K/W)', fontsize=10)
+                ax1.set_ylabel('Integral thermal capacity ∑Cth (Ws/K)', fontsize=10)
                 ax1.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
                 ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e3)
