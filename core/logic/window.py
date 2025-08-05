@@ -374,6 +374,17 @@ class ThermalAnalysisView(QMainWindow):
             ax2 = self.fig3.add_subplot(312)
             ax3 = self.fig3.add_subplot(313)
 
+            # 为第1图设置横轴科学计数法格式
+            def sci_formatter_x(val, pos=None):
+                """科学计数法格式化器，与结构函数纵轴格式一致"""
+                s = f"{val:.1e}"
+                s = s.replace('−', '-')  # Replace Unicode minus sign
+                s = s.replace('e-', '×10⁻')  # Replace scientific notation
+                s = s.replace('e+', '×10⁺')  # Replace scientific notation
+                return s
+            
+            import matplotlib.ticker as ticker
+            
             # 绘制Zth
             t_bayesian = self.processor.results['t_bayesian']
             az_bayesian = self.processor.results['az_bayesian']
@@ -386,7 +397,10 @@ class ThermalAnalysisView(QMainWindow):
                 ax1.set_title('Transient Thermal Impedance Zth', fontsize=12, fontweight='bold')
                 ax1.set_xlabel('Time (s)', fontsize=10)
                 ax1.set_ylabel('Zth (K/W)', fontsize=10)
+            
             setup_plot_formatting(ax1)
+            # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
+            ax1.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
             ax1.grid(True, linestyle='--', alpha=0.7)
 
             # 绘制导数
@@ -418,7 +432,10 @@ class ThermalAnalysisView(QMainWindow):
                 ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
                 ax3.set_xlabel('Time (s)', fontsize=10)
                 ax3.set_ylabel('R(z)', fontsize=10)
+            
             setup_plot_formatting(ax3)
+            # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
+            ax3.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
             ax3.grid(True, linestyle='--', alpha=0.7)
         else:
             # 如果没有数据，显示提示信息

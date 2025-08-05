@@ -24,7 +24,6 @@ def setup_fonts():
         
         # English fonts only
         english_fonts = ['DejaVu Sans', 'Arial', 'Helvetica', 'Liberation Sans', 'FreeSans']
-
         # Check and select available fonts
         available_fonts = []
         for font_name in english_fonts:
