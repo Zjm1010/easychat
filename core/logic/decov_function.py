@@ -163,7 +163,7 @@ class ThermalAnalysisProcessor:
         self.ploss = 1.0
         self.delta_z = 0.05
         self.num_iterations = 500
-        self.discrete_order = 45
+        self.discrete_order = 35
         self.results = {}
 
         # 设置计算精度
@@ -229,6 +229,73 @@ class ThermalAnalysisProcessor:
 
         except Exception as e:
             print(f"Error loading data: {e}")
+            return False
+
+    def load_time_constant_spectrum_data(self, file_path):
+        """从Excel文件直接加载时间常数谱数据 - 第一列为时间，第二列为R(z)"""
+        try:
+            # 方法1: 使用openpyxl引擎读取Excel
+            try:
+                df = pd.read_excel(file_path, engine='openpyxl')
+            except:
+                # 方法2: 使用xlrd引擎读取旧版Excel
+                try:
+                    df = pd.read_excel(file_path, engine='xlrd')
+                except:
+                    # 方法3: 使用csv格式读取
+                    if file_path.endswith('.csv'):
+                        df = pd.read_csv(file_path)
+                    else:
+                        # 方法4: 使用numpy直接读取文本文件
+                        data = np.loadtxt(file_path, delimiter=',', skiprows=1)
+                        df = pd.DataFrame(data, columns=['time', 'R(z)'])
+
+            # 提取数据
+            if len(df.columns) >= 2:
+                t_bayesian = df.iloc[:, 0].values.astype(self.dtype)
+                R = df.iloc[:, 1].values.astype(self.dtype)
+            else:
+                raise ValueError("数据文件至少需要两列：时间和时间常数谱R(z)")
+
+            # 数据验证
+            if len(t_bayesian) == 0 or len(R) == 0:
+                raise ValueError("数据为空")
+
+            if len(t_bayesian) != len(R):
+                raise ValueError("时间和时间常数谱数据长度不匹配")
+
+            # 数据清理：移除无效值
+            valid_mask = (t_bayesian > 0) & (np.isfinite(t_bayesian)) & (np.isfinite(R))
+            if not np.all(valid_mask):
+                print(f"警告: 发现 {np.sum(~valid_mask)} 个无效数据点，已自动移除")
+                t_bayesian = t_bayesian[valid_mask]
+                R = R[valid_mask]
+
+            # 检查重复时间值
+            unique_times, unique_indices = np.unique(t_bayesian, return_index=True)
+            if len(unique_times) != len(t_bayesian):
+                print(f"警告: 发现 {len(t_bayesian) - len(unique_times)} 个重复时间值，已自动处理")
+                # 保留第一个出现的值
+                unique_indices = np.sort(unique_indices)
+                t_bayesian = t_bayesian[unique_indices]
+                R = R[unique_indices]
+
+            # 计算对应的z_bayesian
+            z_bayesian = np.log(t_bayesian).astype(self.dtype)
+
+            # 保存到results中，模拟bayesian_deconvolution的结果
+            self.results['t_bayesian'] = t_bayesian
+            self.results['z_bayesian'] = z_bayesian
+            self.results['R'] = R
+            self.results['z_bayesian_for_R'] = z_bayesian
+
+            print(f"成功加载时间常数谱数据: {len(t_bayesian)} 个有效数据点")
+            print(f"时间范围: {t_bayesian.min():.2e} - {t_bayesian.max():.2e} s")
+            print(f"R(z)范围: {R.min():.2e} - {R.max():.2e}")
+            return True
+
+        except Exception as e:
+            print(f"Error loading time constant spectrum data: {e}")
             return False
 
     def load_data_alternative(self, file_path):
@@ -1210,3 +1277,196 @@ class ThermalAnalysisProcessor:
             return False
 
         return True
+
+    def analysis_from_time_constant_spectrum(self, file_path):
+        """从时间常数谱数据开始执行分析流程"""
+        self.results = {}
+
+        # 直接加载时间常数谱数据
+        if not self.load_time_constant_spectrum_data(file_path):
+            return False
+
+        # 跳过前面的计算步骤，直接从离散时间常数谱开始
+        if not self.discrete_time_constant_spectrum():
+            return False
+
+        # 尝试连分式展开法进行Foster到Cauer转换
+        if not self.foster_to_cauer():
+            return False
+
+        # 基于Cauer网络计算结构函数
+        if not self.calculate_structure_functions():
+            return False
+
+        return True
+
+    def export_transfer_function_results(self, file_path):
+        """导出传递函数计算结果到Excel文件"""
+        try:
+            # 检查是否有可导出的结果
+            exportable_results = {}
+            
+            # Foster网络参数
+            if 'fosterRth' in self.results and 'fosterCth' in self.results:
+                foster_rth = self.results['fosterRth']
+                foster_cth = self.results['fosterCth']
+                
+                # 确保是numpy数组
+                if isinstance(foster_rth, list):
+                    foster_rth = np.array(foster_rth)
+                if isinstance(foster_cth, list):
+                    foster_cth = np.array(foster_cth)
+                
+                exportable_results['Foster_Rth_K_W'] = foster_rth
+                exportable_results['Foster_Cth_Ws_K'] = foster_cth
+                
+                # 计算Foster网络的时间常数
+                if len(foster_rth) == len(foster_cth):
+                    foster_tau = foster_rth * foster_cth
+                    exportable_results['Foster_Tau_s'] = foster_tau
+            
+            # Cauer网络参数
+            if 'cauerRth' in self.results and 'cauerCth' in self.results:
+                cauer_rth = self.results['cauerRth']
+                cauer_cth = self.results['cauerCth']
+                
+                # 确保是numpy数组
+                if isinstance(cauer_rth, list):
+                    cauer_rth = np.array(cauer_rth)
+                if isinstance(cauer_cth, list):
+                    cauer_cth = np.array(cauer_cth)
+                
+                exportable_results['Cauer_Rth_K_W'] = cauer_rth
+                exportable_results['Cauer_Cth_Ws_K'] = cauer_cth
+                
+                # 计算Cauer网络的时间常数
+                if len(cauer_rth) == len(cauer_cth):
+                    cauer_tau = cauer_rth * cauer_cth
+                    exportable_results['Cauer_Tau_s'] = cauer_tau
+            
+            # 结构函数结果
+            if 'cumulative_Rth' in self.results and 'cumulative_Cth' in self.results:
+                exportable_results['Cumulative_Rth_K_W'] = self.results['cumulative_Rth']
+                exportable_results['Cumulative_Cth_Ws_K'] = self.results['cumulative_Cth']
+            
+            if 'differential_Rth' in self.results and 'differential_Cth' in self.results:
+                exportable_results['Differential_Rth_K_W'] = self.results['differential_Rth']
+                exportable_results['Differential_Cth_Ws_K'] = self.results['differential_Cth']
+            
+            if not exportable_results:
+                print("警告: 没有可导出的传递函数计算结果")
+                return False
+            
+            # 创建DataFrame
+            max_length = max(len(v) for v in exportable_results.values())
+            
+            # 填充较短的数组
+            for key, value in exportable_results.items():
+                if len(value) < max_length:
+                    # 用NaN填充
+                    padded_value = np.full(max_length, np.nan)
+                    padded_value[:len(value)] = value
+                    exportable_results[key] = padded_value
+            
+            df = pd.DataFrame(exportable_results)
+            
+            # 保存到Excel文件
+            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Transfer_Function_Results', index=False)
+                
+                # 添加元数据工作表
+                metadata = {
+                    'Parameter': ['Calculation_Date', 'Precision', 'Discrete_Order', 'Delta_z'],
+                    'Value': [
+                        pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        self.precision,
+                        self.discrete_order,
+                        self.delta_z
+                    ]
+                }
+                metadata_df = pd.DataFrame(metadata)
+                metadata_df.to_excel(writer, sheet_name='Metadata', index=False)
+            
+            print(f"传递函数计算结果已导出到: {file_path}")
+            print(f"导出的参数数量: {len(exportable_results)}")
+            print(f"数据点数量: {max_length}")
+            return True
+            
+        except Exception as e:
+            print(f"导出传递函数结果时出错: {e}")
+            return False
+
+    def import_transfer_function_results(self, file_path):
+        """从Excel文件导入传递函数计算结果"""
+        try:
+            # 读取Excel文件
+            df = pd.read_excel(file_path, sheet_name='Transfer_Function_Results')
+            
+            # 导入Foster网络参数
+            if 'Foster_Rth_K_W' in df.columns and 'Foster_Cth_Ws_K' in df.columns:
+                foster_rth = df['Foster_Rth_K_W'].dropna().values.astype(self.dtype)
+                foster_cth = df['Foster_Cth_Ws_K'].dropna().values.astype(self.dtype)
+                
+                if len(foster_rth) > 0 and len(foster_cth) > 0:
+                    self.results['fosterRth'] = foster_rth
+                    self.results['fosterCth'] = foster_cth
+                    print(f"导入Foster网络参数: {len(foster_rth)} 个参数")
+            
+            # 导入Cauer网络参数
+            if 'Cauer_Rth_K_W' in df.columns and 'Cauer_Cth_Ws_K' in df.columns:
+                cauer_rth = df['Cauer_Rth_K_W'].dropna().values.astype(self.dtype)
+                cauer_cth = df['Cauer_Cth_Ws_K'].dropna().values.astype(self.dtype)
+                
+                if len(cauer_rth) > 0 and len(cauer_cth) > 0:
+                    self.results['cauerRth'] = cauer_rth
+                    self.results['cauerCth'] = cauer_cth
+                    print(f"导入Cauer网络参数: {len(cauer_rth)} 个参数")
+            
+            # 导入结构函数结果
+            if 'Cumulative_Rth_K_W' in df.columns and 'Cumulative_Cth_Ws_K' in df.columns:
+                cumulative_rth = df['Cumulative_Rth_K_W'].dropna().values.astype(self.dtype)
+                cumulative_cth = df['Cumulative_Cth_Ws_K'].dropna().values.astype(self.dtype)
+                
+                if len(cumulative_rth) > 0 and len(cumulative_cth) > 0:
+                    self.results['cumulative_Rth'] = cumulative_rth
+                    self.results['cumulative_Cth'] = cumulative_cth
+                    print(f"导入积分结构函数: {len(cumulative_rth)} 个数据点")
+            
+            if 'Differential_Rth_K_W' in df.columns and 'Differential_Cth_Ws_K' in df.columns:
+                differential_rth = df['Differential_Rth_K_W'].dropna().values.astype(self.dtype)
+                differential_cth = df['Differential_Cth_Ws_K'].dropna().values.astype(self.dtype)
+                
+                if len(differential_rth) > 0 and len(differential_cth) > 0:
+                    self.results['differential_Rth'] = differential_rth
+                    self.results['differential_Cth'] = differential_cth
+                    print(f"导入微分结构函数: {len(differential_rth)} 个数据点")
+            
+            # 读取元数据
+            try:
+                metadata_df = pd.read_excel(file_path, sheet_name='Metadata')
+                if 'Parameter' in metadata_df.columns and 'Value' in metadata_df.columns:
+                    for _, row in metadata_df.iterrows():
+                        param = row['Parameter']
+                        value = row['Value']
+                        if param == 'Precision' and value in ['float32', 'float64']:
+                            self.precision = value
+                            self.dtype = np.float32 if value == 'float32' else np.float64
+                        elif param == 'Discrete_Order':
+                            try:
+                                self.discrete_order = int(value)
+                            except:
+                                pass
+                        elif param == 'Delta_z':
+                            try:
+                                self.delta_z = float(value)
+                            except:
+                                pass
+            except:
+                print("警告: 无法读取元数据")
+            
+            print(f"传递函数计算结果已从文件导入: {file_path}")
+            return True
+            
+        except Exception as e:
+            print(f"导入传递函数结果时出错: {e}")
+            return False

@@ -13,7 +13,7 @@ import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QSlider, QLabel, QPushButton, QGroupBox, QFileDialog,
-                             QProgressBar, QTabWidget)
+                             QProgressBar, QTabWidget, QMessageBox, QTableWidgetItem)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
@@ -34,6 +34,7 @@ class ThermalAnalysisView(QMainWindow):
         self.discrete_order = 45  # 默认离散阶数
         self.precision = 'float64'  # 默认计算精度
         self.results = {}  # 初始化结果字典
+        self.data_mode = 'Original Temperature Data'  # 默认数据输入模式
 
         # 创建处理器实例
         self.processor = ThermalAnalysisProcessor(precision=self.precision)
@@ -72,6 +73,16 @@ class ThermalAnalysisView(QMainWindow):
             "QGroupBox {border: 1px solid #ddd; border-radius: 8px; padding: 10px;}"
             "QGroupBox::title {subcontrol-origin: margin; left: 10px; padding: 0 5px;}"
         )
+
+        # 数据输入模式选择
+        mode_layout = QHBoxLayout()
+        mode_layout.addWidget(QLabel("Data Input Mode:"))
+        from PyQt5.QtWidgets import QComboBox
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(['Original Temperature Data', 'Time Constant Spectrum Data'])
+        self.mode_combo.currentTextChanged.connect(self.update_mode)
+        mode_layout.addWidget(self.mode_combo)
+        mode_layout.addStretch()
 
         # 文件选择
         file_layout = QHBoxLayout()
@@ -141,14 +152,38 @@ class ThermalAnalysisView(QMainWindow):
         )
         self.analyze_btn.clicked.connect(self.run_analysis)
 
+        # 传递函数结果操作按钮
+        transfer_function_layout = QHBoxLayout()
+        
+        self.export_btn = QPushButton("Export Results")
+        self.export_btn.setStyleSheet(
+            "background-color: #2196F3; color: white; font-weight: bold; "
+            "font-size: 12pt; padding: 8px; border-radius: 6px;"
+        )
+        self.export_btn.clicked.connect(self.export_results)
+        self.export_btn.setEnabled(False)  # 初始状态禁用
+        
+        self.import_btn = QPushButton("Import Results")
+        self.import_btn.setStyleSheet(
+            "background-color: #FF9800; color: white; font-weight: bold; "
+            "font-size: 12pt; padding: 8px; border-radius: 6px;"
+        )
+        self.import_btn.clicked.connect(self.import_results)
+        
+        transfer_function_layout.addWidget(self.export_btn)
+        transfer_function_layout.addWidget(self.import_btn)
+        transfer_function_layout.addStretch()
+
         # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setTextVisible(False)
 
+        control_layout.addLayout(mode_layout)
         control_layout.addLayout(file_layout)
         control_layout.addLayout(param_layout)
         control_layout.addWidget(self.analyze_btn)
+        control_layout.addLayout(transfer_function_layout)
         control_layout.addWidget(self.progress_bar)
 
         # 图表区域
@@ -159,17 +194,20 @@ class ThermalAnalysisView(QMainWindow):
         self.tab2 = QWidget()
         self.tab3 = QWidget()
         self.tab4 = QWidget()
+        self.tab5 = QWidget()
 
         self.tab_widget.addTab(self.tab1, "Original Data")
         self.tab_widget.addTab(self.tab2, "Log Interpolation")
         self.tab_widget.addTab(self.tab3, "Time Constant Spectrum")
         self.tab_widget.addTab(self.tab4, "Structure Function")
+        self.tab_widget.addTab(self.tab5, "Transfer Function Results")
 
         # 设置标签页布局
         self.setup_tab1()
         self.setup_tab2()
         self.setup_tab3()
         self.setup_tab4()
+        self.setup_tab5()
 
         # 主布局
         main_layout.addWidget(control_group)
@@ -220,10 +258,45 @@ class ThermalAnalysisView(QMainWindow):
 
         layout.addWidget(self.canvas4)
 
+    def setup_tab5(self):
+        """设置传递函数结果标签页"""
+        layout = QVBoxLayout(self.tab5)
+
+        # 创建文本显示区域
+        from PyQt5.QtWidgets import QTextEdit, QSplitter, QTableWidget, QTableWidgetItem
+        from PyQt5.QtCore import Qt
+
+        # 创建分割器
+        splitter = QSplitter(Qt.Vertical)
+        
+        # 上半部分：参数表格
+        self.transfer_table = QTableWidget()
+        self.transfer_table.setColumnCount(4)
+        self.transfer_table.setHorizontalHeaderLabels(['Parameter', 'Value', 'Unit', 'Description'])
+        self.transfer_table.horizontalHeader().setStretchLastSection(True)
+        
+        # 下半部分：详细信息文本
+        self.transfer_text = QTextEdit()
+        self.transfer_text.setReadOnly(True)
+        self.transfer_text.setMaximumHeight(200)
+        
+        splitter.addWidget(self.transfer_table)
+        splitter.addWidget(self.transfer_text)
+        splitter.setSizes([400, 200])
+        
+        layout.addWidget(splitter)
+
     def browse_file(self):
         """浏览文件"""
+        if self.data_mode == 'Time Constant Spectrum Data':
+            title = "Select Time Constant Spectrum Data File"
+            file_filter = "Excel Files (*.xlsx *.xls);;CSV Files (*.csv);;All Files (*)"
+        else:
+            title = "Select Temperature Data File"
+            file_filter = "Excel Files (*.xlsx *.xls);;CSV Files (*.csv);;All Files (*)"
+            
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Data File", "", "Excel Files (*.xlsx *.xls);;All Files (*)"
+            self, title, "", file_filter
         )
 
         if file_path:
@@ -254,6 +327,16 @@ class ThermalAnalysisView(QMainWindow):
         self.processor = ThermalAnalysisProcessor(precision=self.precision)
         print(f"计算精度已更新为: {precision}")
 
+    def update_mode(self, mode):
+        """更新数据输入模式"""
+        self.data_mode = mode
+        print(f"数据输入模式已更新为: {mode}")
+        # 根据模式更新文件选择提示
+        if mode == 'Time Constant Spectrum Data':
+            self.file_label.setText("Select time constant spectrum data file (Time, R(z))")
+        else:
+            self.file_label.setText("No file selected")
+
     def run_analysis(self):
         """运行分析"""
         if not hasattr(self, 'file_path'):
@@ -262,12 +345,19 @@ class ThermalAnalysisView(QMainWindow):
         # 更新进度条
         self.progress_bar.setValue(10)
 
-        # 执行分析
-        success = self.processor.full_analysis(self.file_path, self.ambient_temp)
+        # 根据数据输入模式选择分析方法
+        if self.data_mode == 'Time Constant Spectrum Data':
+            # 从时间常数谱数据开始分析
+            success = self.processor.analysis_from_time_constant_spectrum(self.file_path)
+        else:
+            # 从原始温度数据开始完整分析
+            success = self.processor.full_analysis(self.file_path, self.ambient_temp)
 
         if success:
             self.progress_bar.setValue(100)
             self.plot_results()
+            self.update_transfer_function_display()
+            self.export_btn.setEnabled(True)  # 启用导出按钮
         else:
             self.progress_bar.setValue(0)
 
@@ -324,7 +414,11 @@ class ThermalAnalysisView(QMainWindow):
         """绘制对数插值结果"""
         self.fig2.clear()
 
-        if 'z_fft' in self.processor.results and 'az_fft' in self.processor.results:
+        # 检查是否有完整的分析数据
+        has_full_data = ('z_fft' in self.processor.results and 'az_fft' in self.processor.results)
+        
+        if has_full_data:
+            # 完整分析数据
             ax1 = self.fig2.add_subplot(211)
             ax1.plot(self.processor.results['z_fft'], self.processor.results['az_fft'], 'b-', linewidth=2)
             try:
@@ -338,19 +432,33 @@ class ThermalAnalysisView(QMainWindow):
             setup_plot_formatting(ax1)
             ax1.grid(True, linestyle='--', alpha=0.7)
 
-        if 'z_bayesian' in self.processor.results and 'az_bayesian' in self.processor.results:
-            ax2 = self.fig2.add_subplot(212)
-            ax2.plot(self.processor.results['z_bayesian'], self.processor.results['az_bayesian'], 'g-', linewidth=2)
+            if 'z_bayesian' in self.processor.results and 'az_bayesian' in self.processor.results:
+                ax2 = self.fig2.add_subplot(212)
+                ax2.plot(self.processor.results['z_bayesian'], self.processor.results['az_bayesian'], 'g-', linewidth=2)
+                try:
+                    ax2.set_xlabel('Uniformly Interpolated z', fontsize=12)
+                    ax2.set_ylabel('Interpolated a(z)', fontsize=12)
+                    ax2.set_title('Uniformly Interpolated Log Time Data', fontsize=14, fontweight='bold')
+                except:
+                    ax2.set_xlabel('Interpolated z', fontsize=12)
+                    ax2.set_ylabel('Interpolated a(z)', fontsize=12)
+                    ax2.set_title('Interpolated Log Time Data', fontsize=14, fontweight='bold')
+                setup_plot_formatting(ax2)
+                ax2.grid(True, linestyle='--', alpha=0.7)
+        elif 'z_bayesian' in self.processor.results and 'R' in self.processor.results:
+            # 从时间常数谱数据开始的情况
+            ax = self.fig2.add_subplot(111)
+            ax.plot(self.processor.results['z_bayesian'], self.processor.results['R'], 'g-', linewidth=2)
             try:
-                ax2.set_xlabel('Uniformly Interpolated z', fontsize=12)
-                ax2.set_ylabel('Interpolated a(z)', fontsize=12)
-                ax2.set_title('Uniformly Interpolated Log Time Data', fontsize=14, fontweight='bold')
+                ax.set_xlabel('z = ln(t)', fontsize=12)
+                ax.set_ylabel('R(z)', fontsize=12)
+                ax.set_title('Imported Time Constant Spectrum on Log Time Axis', fontsize=14, fontweight='bold')
             except:
-                ax2.set_xlabel('Interpolated z', fontsize=12)
-                ax2.set_ylabel('Interpolated a(z)', fontsize=12)
-                ax2.set_title('Interpolated Log Time Data', fontsize=14, fontweight='bold')
-            setup_plot_formatting(ax2)
-            ax2.grid(True, linestyle='--', alpha=0.7)
+                ax.set_xlabel('z = ln(t)', fontsize=12)
+                ax.set_ylabel('R(z)', fontsize=12)
+                ax.set_title('Imported Time Constant Spectrum', fontsize=14, fontweight='bold')
+            setup_plot_formatting(ax)
+            ax.grid(True, linestyle='--', alpha=0.7)
         else:
             # 如果没有数据，显示提示信息
             ax = self.fig2.add_subplot(111)
@@ -365,78 +473,110 @@ class ThermalAnalysisView(QMainWindow):
         """绘制时间常数谱"""
         self.fig3.clear()
 
-        if ('t_bayesian' in self.processor.results and
-                'az_bayesian' in self.processor.results and
-                'da_dz_bayesian' in self.processor.results and
-                'R' in self.processor.results):
-            # 创建三个子图
-            ax1 = self.fig3.add_subplot(311)
-            ax2 = self.fig3.add_subplot(312)
-            ax3 = self.fig3.add_subplot(313)
+        if ('t_bayesian' in self.processor.results and 'R' in self.processor.results):
+            # 检查是否有完整的分析数据
+            has_full_data = ('az_bayesian' in self.processor.results and 
+                           'da_dz_bayesian' in self.processor.results)
+            
+            if has_full_data:
+                # 创建三个子图（完整分析）
+                ax1 = self.fig3.add_subplot(311)
+                ax2 = self.fig3.add_subplot(312)
+                ax3 = self.fig3.add_subplot(313)
 
-            # 为第1图设置横轴科学计数法格式
-            def sci_formatter_x(val, pos=None):
-                """科学计数法格式化器，与结构函数纵轴格式一致"""
-                s = f"{val:.1e}"
-                s = s.replace('−', '-')  # Replace Unicode minus sign
-                s = s.replace('e-', '×10⁻')  # Replace scientific notation
-                s = s.replace('e+', '×10⁺')  # Replace scientific notation
-                return s
-            
-            import matplotlib.ticker as ticker
-            
-            # 绘制Zth
-            t_bayesian = self.processor.results['t_bayesian']
-            az_bayesian = self.processor.results['az_bayesian']
-            ax1.semilogx(t_bayesian, az_bayesian, 'b-', linewidth=2)
-            try:
-                ax1.set_title('Transient thermal impedance Zth', fontsize=12, fontweight='bold')
-                ax1.set_xlabel('Time (s)', fontsize=10)
-                ax1.set_ylabel('Zth (K/W)', fontsize=10)
-            except:
-                ax1.set_title('Transient Thermal Impedance Zth', fontsize=12, fontweight='bold')
-                ax1.set_xlabel('Time (s)', fontsize=10)
-                ax1.set_ylabel('Zth (K/W)', fontsize=10)
-            
-            setup_plot_formatting(ax1)
-            # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
-            ax1.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
-            ax1.grid(True, linestyle='--', alpha=0.7)
+                # 为第1图设置横轴科学计数法格式
+                def sci_formatter_x(val, pos=None):
+                    """科学计数法格式化器，与结构函数纵轴格式一致"""
+                    s = f"{val:.1e}"
+                    s = s.replace('−', '-')  # Replace Unicode minus sign
+                    s = s.replace('e-', '×10⁻')  # Replace scientific notation
+                    s = s.replace('e+', '×10⁺')  # Replace scientific notation
+                    return s
+                
+                import matplotlib.ticker as ticker
+                
+                # 绘制Zth
+                t_bayesian = self.processor.results['t_bayesian']
+                az_bayesian = self.processor.results['az_bayesian']
+                ax1.semilogx(t_bayesian, az_bayesian, 'b-', linewidth=2)
+                try:
+                    ax1.set_title('Transient thermal impedance Zth', fontsize=12, fontweight='bold')
+                    ax1.set_xlabel('Time (s)', fontsize=10)
+                    ax1.set_ylabel('Zth (K/W)', fontsize=10)
+                except:
+                    ax1.set_title('Transient Thermal Impedance Zth', fontsize=12, fontweight='bold')
+                    ax1.set_xlabel('Time (s)', fontsize=10)
+                    ax1.set_ylabel('Zth (K/W)', fontsize=10)
+                
+                setup_plot_formatting(ax1)
+                # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
+                ax1.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
+                ax1.grid(True, linestyle='--', alpha=0.7)
 
-            # 绘制导数
-            da_dz_bayesian = self.processor.results['da_dz_bayesian']
-            da_dz_bayesian_smoothed = self.processor.results['da_dz_bayesian_smoothed']
-            z_bayesian = self.processor.results['z_bayesian']
-            ax2.plot(z_bayesian[:-1], da_dz_bayesian, 'r-', alpha=0.5, label='Original derivative')
-            ax2.plot(z_bayesian[:-1], da_dz_bayesian_smoothed, 'b-', linewidth=2, label='Derivative after smoothing')
-            try:
-                ax2.set_title('Derivative da(z)/dz', fontsize=12, fontweight='bold')
-                ax2.set_xlabel('z = ln(t)', fontsize=10)
-                ax2.set_ylabel('da(z)/dz', fontsize=10)
-            except:
-                ax2.set_title('Derivative da(z)/dz', fontsize=12, fontweight='bold')
-                ax2.set_xlabel('z = ln(t)', fontsize=10)
-                ax2.set_ylabel('da(z)/dz', fontsize=10)
-            ax2.legend(fontsize=9)
-            setup_plot_formatting(ax2)
-            ax2.grid(True, linestyle='--', alpha=0.7)
+                # 绘制导数
+                da_dz_bayesian = self.processor.results['da_dz_bayesian']
+                da_dz_bayesian_smoothed = self.processor.results['da_dz_bayesian_smoothed']
+                z_bayesian = self.processor.results['z_bayesian']
+                ax2.plot(z_bayesian[:-1], da_dz_bayesian, 'r-', alpha=0.5, label='Original derivative')
+                ax2.plot(z_bayesian[:-1], da_dz_bayesian_smoothed, 'b-', linewidth=2, label='Derivative after smoothing')
+                try:
+                    ax2.set_title('Derivative da(z)/dz', fontsize=12, fontweight='bold')
+                    ax2.set_xlabel('z = ln(t)', fontsize=10)
+                    ax2.set_ylabel('da(z)/dz', fontsize=10)
+                except:
+                    ax2.set_title('Derivative da(z)/dz', fontsize=12, fontweight='bold')
+                    ax2.set_xlabel('z = ln(t)', fontsize=10)
+                    ax2.set_ylabel('da(z)/dz', fontsize=10)
+                ax2.legend(fontsize=9)
+                setup_plot_formatting(ax2)
+                ax2.grid(True, linestyle='--', alpha=0.7)
 
-            # 绘制时间常数谱
-            R = self.processor.results['R']
-            ax3.semilogx(t_bayesian[:-1], R, 'g-', linewidth=2)
-            try:
-                ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
-                ax3.set_xlabel('Time (s)', fontsize=10)
-                ax3.set_ylabel('R(z)', fontsize=10)
-            except:
-                ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
-                ax3.set_xlabel('Time (s)', fontsize=10)
-                ax3.set_ylabel('R(z)', fontsize=10)
-            
-            setup_plot_formatting(ax3)
-            # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
-            ax3.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
-            ax3.grid(True, linestyle='--', alpha=0.7)
+                # 绘制时间常数谱
+                R = self.processor.results['R']
+                ax3.semilogx(t_bayesian[:-1], R, 'g-', linewidth=2)
+                try:
+                    ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
+                    ax3.set_xlabel('Time (s)', fontsize=10)
+                    ax3.set_ylabel('R(z)', fontsize=10)
+                except:
+                    ax3.set_title('Bayesian Deconvolution Time Constant Spectrum', fontsize=12, fontweight='bold')
+                    ax3.set_xlabel('Time (s)', fontsize=10)
+                    ax3.set_ylabel('R(z)', fontsize=10)
+                
+                setup_plot_formatting(ax3)
+                # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
+                ax3.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
+                ax3.grid(True, linestyle='--', alpha=0.7)
+            else:
+                # 只有时间常数谱数据（从文件导入）
+                ax = self.fig3.add_subplot(111)
+                
+                # 为横轴设置科学计数法格式
+                def sci_formatter_x(val, pos=None):
+                    s = f"{val:.1e}"
+                    s = s.replace('−', '-')
+                    s = s.replace('e-', '×10⁻')
+                    s = s.replace('e+', '×10⁺')
+                    return s
+                
+                import matplotlib.ticker as ticker
+                
+                # 绘制时间常数谱
+                t_bayesian = self.processor.results['t_bayesian']
+                R = self.processor.results['R']
+                ax.semilogx(t_bayesian, R, 'g-', linewidth=2)
+                try:
+                    ax.set_title('Imported Time Constant Spectrum R(z)', fontsize=12, fontweight='bold')
+                    ax.set_xlabel('Time (s)', fontsize=10)
+                    ax.set_ylabel('R(z)', fontsize=10)
+                except:
+                    ax.set_title('Imported Time Constant Spectrum R(z)', fontsize=12, fontweight='bold')
+                    ax.set_xlabel('Time (s)', fontsize=10)
+                    ax.set_ylabel('R(z)', fontsize=10)
+                
+                setup_plot_formatting(ax)
+                ax.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
+                ax.grid(True, linestyle='--', alpha=0.7)
         else:
             # 如果没有数据，显示提示信息
             ax = self.fig3.add_subplot(111)
@@ -472,7 +612,7 @@ class ThermalAnalysisView(QMainWindow):
                 ax1.set_ylabel('Integral thermal capacity ∑Cth (Ws/K)', fontsize=10)
                 ax1.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
-                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e3)
+                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e5)
             else:
                 ax1.text(0.5, 0.5, 'no valid data', transform=ax1.transAxes, ha='center', va='center')
                 ax1.set_title('Integral structure function', fontsize=12, fontweight='bold')
@@ -531,6 +671,190 @@ class ThermalAnalysisView(QMainWindow):
 
         self.fig4.tight_layout()
         self.canvas4.draw()
+
+    def export_results(self):
+        """导出传递函数计算结果"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Transfer Function Results", "", 
+            "Excel Files (*.xlsx);;All Files (*)"
+        )
+        
+        if file_path:
+            if not file_path.endswith('.xlsx'):
+                file_path += '.xlsx'
+            
+            success = self.processor.export_transfer_function_results(file_path)
+            if success:
+                QMessageBox.information(self, "Export Success", 
+                                      f"Transfer function results exported to:\n{file_path}")
+            else:
+                QMessageBox.warning(self, "Export Failed", 
+                                   "Failed to export transfer function results.")
+
+    def import_results(self):
+        """导入传递函数计算结果"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Import Transfer Function Results", "", 
+            "Excel Files (*.xlsx);;All Files (*)"
+        )
+        
+        if file_path:
+            success = self.processor.import_transfer_function_results(file_path)
+            if success:
+                self.update_transfer_function_display()
+                self.plot_structure_functions()  # 重新绘制结构函数
+                QMessageBox.information(self, "Import Success", 
+                                      f"Transfer function results imported from:\n{file_path}")
+            else:
+                QMessageBox.warning(self, "Import Failed", 
+                                   "Failed to import transfer function results.")
+
+    def update_transfer_function_display(self):
+        """更新传递函数结果显示"""
+        
+        # 清空表格
+        self.transfer_table.setRowCount(0)
+        
+        # 准备显示数据
+        display_data = []
+        
+        # Foster网络参数
+        if 'fosterRth' in self.processor.results and 'fosterCth' in self.processor.results:
+            foster_rth = self.processor.results['fosterRth']
+            foster_cth = self.processor.results['fosterCth']
+            
+            if len(foster_rth) > 0:
+                display_data.append(('Foster Network Parameters', '', '', ''))
+                display_data.append(('Number of Parameters', str(len(foster_rth)), '', ''))
+                display_data.append(('Total Rth', f"{np.sum(foster_rth):.6e}", 'K/W', 'Total thermal resistance'))
+                display_data.append(('Total Cth', f"{np.sum(foster_cth):.6e}", 'Ws/K', 'Total thermal capacity'))
+                display_data.append(('Min Rth', f"{np.min(foster_rth):.6e}", 'K/W', 'Minimum thermal resistance'))
+                display_data.append(('Max Rth', f"{np.max(foster_rth):.6e}", 'K/W', 'Maximum thermal resistance'))
+                display_data.append(('Min Cth', f"{np.min(foster_cth):.6e}", 'Ws/K', 'Minimum thermal capacity'))
+                display_data.append(('Max Cth', f"{np.max(foster_cth):.6e}", 'Ws/K', 'Maximum thermal capacity'))
+        
+        # Cauer网络参数
+        if 'cauerRth' in self.processor.results and 'cauerCth' in self.processor.results:
+            cauer_rth = self.processor.results['cauerRth']
+            cauer_cth = self.processor.results['cauerCth']
+            
+            if len(cauer_rth) > 0:
+                display_data.append(('', '', '', ''))  # 空行
+                display_data.append(('Cauer Network Parameters', '', '', ''))
+                display_data.append(('Number of Parameters', str(len(cauer_rth)), '', ''))
+                display_data.append(('Total Rth', f"{np.sum(cauer_rth):.6e}", 'K/W', 'Total thermal resistance'))
+                display_data.append(('Total Cth', f"{np.sum(cauer_cth):.6e}", 'Ws/K', 'Total thermal capacity'))
+                display_data.append(('Min Rth', f"{np.min(cauer_rth):.6e}", 'K/W', 'Minimum thermal resistance'))
+                display_data.append(('Max Rth', f"{np.max(cauer_rth):.6e}", 'K/W', 'Maximum thermal resistance'))
+                display_data.append(('Min Cth', f"{np.min(cauer_cth):.6e}", 'Ws/K', 'Minimum thermal capacity'))
+                display_data.append(('Max Cth', f"{np.max(cauer_cth):.6e}", 'Ws/K', 'Maximum thermal capacity'))
+        
+        # 结构函数信息
+        if 'cumulative_Rth' in self.processor.results and 'cumulative_Cth' in self.processor.results:
+            cumulative_rth = self.processor.results['cumulative_Rth']
+            cumulative_cth = self.processor.results['cumulative_Cth']
+            
+            if len(cumulative_rth) > 0:
+                display_data.append(('', '', '', ''))  # 空行
+                display_data.append(('Structure Function Parameters', '', '', ''))
+                display_data.append(('Integral Data Points', str(len(cumulative_rth)), '', ''))
+                display_data.append(('Final Rth', f"{cumulative_rth[-1]:.6e}", 'K/W', 'Final cumulative thermal resistance'))
+                display_data.append(('Final Cth', f"{cumulative_cth[-1]:.6e}", 'Ws/K', 'Final cumulative thermal capacity'))
+        
+        if 'differential_Rth' in self.processor.results and 'differential_Cth' in self.processor.results:
+            differential_rth = self.processor.results['differential_Rth']
+            differential_cth = self.processor.results['differential_Cth']
+            
+            if len(differential_rth) > 0:
+                display_data.append(('Differential Data Points', str(len(differential_rth)), '', ''))
+                display_data.append(('Min Diff Rth', f"{np.min(differential_rth):.6e}", 'K/W', 'Minimum differential thermal resistance'))
+                display_data.append(('Max Diff Rth', f"{np.max(differential_rth):.6e}", 'K/W', 'Maximum differential thermal resistance'))
+                display_data.append(('Min Diff Cth', f"{np.min(differential_cth):.6e}", 'Ws/K', 'Minimum differential thermal capacity'))
+                display_data.append(('Max Diff Cth', f"{np.max(differential_cth):.6e}", 'Ws/K', 'Maximum differential thermal capacity'))
+        
+        # 计算参数
+        display_data.append(('', '', '', ''))  # 空行
+        display_data.append(('Calculation Parameters', '', '', ''))
+        display_data.append(('Precision', self.processor.precision, '', 'Calculation precision'))
+        display_data.append(('Discrete Order', str(self.processor.discrete_order), '', 'Discrete time constant spectrum order'))
+        display_data.append(('Delta z', f"{self.processor.delta_z:.3f}", '', 'Log interval'))
+        
+        # 填充表格
+        self.transfer_table.setRowCount(len(display_data))
+        for i, (param, value, unit, desc) in enumerate(display_data):
+            self.transfer_table.setItem(i, 0, QTableWidgetItem(param))
+            self.transfer_table.setItem(i, 1, QTableWidgetItem(value))
+            self.transfer_table.setItem(i, 2, QTableWidgetItem(unit))
+            self.transfer_table.setItem(i, 3, QTableWidgetItem(desc))
+            
+            # 设置标题行样式
+            if param in ['Foster Network Parameters', 'Cauer Network Parameters', 'Structure Function Parameters', 'Calculation Parameters']:
+                for j in range(4):
+                    item = self.transfer_table.item(i, j)
+                    if item:
+                        item.setBackground(Qt.lightGray)
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+        
+        # 调整列宽
+        self.transfer_table.resizeColumnsToContents()
+        
+        # 更新详细信息文本
+        self.update_transfer_function_text()
+
+    def update_transfer_function_text(self):
+        """更新传递函数详细信息文本"""
+        text = "Transfer Function Analysis Results\n"
+        text += "=" * 50 + "\n\n"
+        
+        # Foster网络详细信息
+        if 'fosterRth' in self.processor.results and 'fosterCth' in self.processor.results:
+            foster_rth = self.processor.results['fosterRth']
+            foster_cth = self.processor.results['fosterCth']
+            
+            text += "Foster Network Parameters:\n"
+            text += f"  Number of parameters: {len(foster_rth)}\n"
+            text += f"  Total thermal resistance: {np.sum(foster_rth):.6e} K/W\n"
+            text += f"  Total thermal capacity: {np.sum(foster_cth):.6e} Ws/K\n\n"
+            
+            text += "Individual Parameters:\n"
+            for i in range(min(len(foster_rth), 10)):  # 只显示前10个参数
+                text += f"  R{i+1}: {foster_rth[i]:.6e} K/W, C{i+1}: {foster_cth[i]:.6e} Ws/K, τ{i+1}: {foster_rth[i]*foster_cth[i]:.6e} s\n"
+            
+            if len(foster_rth) > 10:
+                text += f"  ... and {len(foster_rth) - 10} more parameters\n"
+            text += "\n"
+        
+        # Cauer网络详细信息
+        if 'cauerRth' in self.processor.results and 'cauerCth' in self.processor.results:
+            cauer_rth = self.processor.results['cauerRth']
+            cauer_cth = self.processor.results['cauerCth']
+            
+            text += "Cauer Network Parameters:\n"
+            text += f"  Number of parameters: {len(cauer_rth)}\n"
+            text += f"  Total thermal resistance: {np.sum(cauer_rth):.6e} K/W\n"
+            text += f"  Total thermal capacity: {np.sum(cauer_cth):.6e} Ws/K\n\n"
+            
+            text += "Individual Parameters:\n"
+            for i in range(min(len(cauer_rth), 10)):  # 只显示前10个参数
+                text += f"  R{i+1}: {cauer_rth[i]:.6e} K/W, C{i+1}: {cauer_cth[i]:.6e} Ws/K, τ{i+1}: {cauer_rth[i]*cauer_cth[i]:.6e} s\n"
+            
+            if len(cauer_rth) > 10:
+                text += f"  ... and {len(cauer_rth) - 10} more parameters\n"
+            text += "\n"
+        
+        # 结构函数信息
+        if 'cumulative_Rth' in self.processor.results and 'cumulative_Cth' in self.processor.results:
+            cumulative_rth = self.processor.results['cumulative_Rth']
+            cumulative_cth = self.processor.results['cumulative_Cth']
+            
+            text += "Structure Function Information:\n"
+            text += f"  Integral data points: {len(cumulative_rth)}\n"
+            text += f"  Final cumulative Rth: {cumulative_rth[-1]:.6e} K/W\n"
+            text += f"  Final cumulative Cth: {cumulative_cth[-1]:.6e} Ws/K\n\n"
+        
+        self.transfer_text.setText(text)
 
 
 def create_main_window():
