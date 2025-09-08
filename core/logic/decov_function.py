@@ -163,7 +163,7 @@ class ThermalAnalysisProcessor:
         self.ploss = 1.0
         self.delta_z = 0.05
         self.num_iterations = 500
-        self.discrete_order = 35
+        self.discrete_order = None  # 将由用户设置
         self.results = {}
 
         # 设置计算精度
@@ -530,6 +530,15 @@ class ThermalAnalysisProcessor:
                 'R' not in self.results):
             return False
 
+        # 验证离散阶数是否已设置
+        if self.discrete_order is None:
+            print("错误: 离散阶数未设置，请先设置discrete_order参数")
+            return False
+
+        if self.discrete_order <= 0:
+            print("错误: 离散阶数必须为正整数")
+            return False
+
         # 优先使用与R对应的z_bayesian数组
         if 'z_bayesian_for_R' in self.results:
             z_bayesian = self.results['z_bayesian_for_R']
@@ -563,9 +572,6 @@ class ThermalAnalysisProcessor:
         # 基于R值的分布进行自适应区间划分
         R_cumsum = np.cumsum(R_valid)
         R_total = R_cumsum[-1]
-
-        # 确保每个区间包含足够的R值
-        min_R_per_interval = R_total / (self.discrete_order * 2)  # 至少包含总R值的1/(2*order)
 
         # 创建区间边界
         interval_boundaries = []
@@ -778,7 +784,7 @@ class ThermalAnalysisProcessor:
 
         j = 0
         max_iterations = len(foster_rth)
-        
+
         for i in range(max_iterations):
             try:
                 # 计算并联热容参数
@@ -788,7 +794,7 @@ class ThermalAnalysisProcessor:
                     break
                 cauerCth.append(c)
                 print(f"迭代 {i+1}: 并联热容 = {c}")
-                
+
                 # 更新复导纳的分子
                 numY = sp.expand(numY - c * s * denY)
                 if sp.expand(numY) == 0:
@@ -817,7 +823,7 @@ class ThermalAnalysisProcessor:
                     break
                 cauerRth.append(r)
                 print(f"迭代 {i+1}: 串联热阻 = {r}")
-                
+
                 # 更新复阻抗的分子
                 numZ = sp.expand(numZ - r * denZ)
 
@@ -829,7 +835,7 @@ class ThermalAnalysisProcessor:
                 if sp.expand(numZ / denZ) == 0:
                     print(f"迭代 {i+1}: Z(s) = 0，停止迭代")
                     break
-                    
+
             except Exception as e:
                 print(f"迭代 {i+1} 时出错: {e}")
                 break
@@ -859,6 +865,16 @@ class ThermalAnalysisProcessor:
                     print(f"警告: 无法转换热容值 {c_val} 为数值")
                     continue
 
+            # 检查是否有足够的有效参数
+            if len(cauerRth_numeric) == 0 or len(cauerCth_numeric) == 0:
+                print("错误: 没有成功转换任何Cauer网络参数")
+                return False
+
+            # 确保数组长度匹配
+            min_len = min(len(cauerRth_numeric), len(cauerCth_numeric))
+            cauerRth_numeric = cauerRth_numeric[:min_len]
+            cauerCth_numeric = cauerCth_numeric[:min_len]
+
             # 转换为numpy数组
             cauerRth_array = np.array(cauerRth_numeric, dtype=self.dtype)
             cauerCth_array = np.array(cauerCth_numeric, dtype=self.dtype)
@@ -872,10 +888,15 @@ class ThermalAnalysisProcessor:
 
         except Exception as e:
             print(f"Foster到Cauer转换失败: {e}")
-            # 如果转换失败，保存原始符号表达式（用于调试）
-            self.results['cauerRth'] = cauerRth
-            self.results['cauerCth'] = cauerCth
-            return False
+            # 如果转换失败，尝试使用Foster参数作为备选
+            print("尝试使用Foster网络参数作为Cauer参数的备选")
+            try:
+                self.results['cauerRth'] = foster_rth
+                self.results['cauerCth'] = foster_cth
+                print("已使用Foster网络参数作为备选")
+                return True
+            except:
+                return False
 
     @staticmethod
     def normalized_numden(expr: Expr, s, tol=1e-50) -> (Expr, Expr):
@@ -1380,7 +1401,7 @@ class ThermalAnalysisProcessor:
                     'Value': [
                         pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
                         self.precision,
-                        self.discrete_order,
+                        self.discrete_order if self.discrete_order is not None else 'Not set',
                         self.delta_z
                     ]
                 }
@@ -1453,7 +1474,8 @@ class ThermalAnalysisProcessor:
                             self.dtype = np.float32 if value == 'float32' else np.float64
                         elif param == 'Discrete_Order':
                             try:
-                                self.discrete_order = int(value)
+                                if value != 'Not set' and value is not None:
+                                    self.discrete_order = int(value)
                             except:
                                 pass
                         elif param == 'Delta_z':

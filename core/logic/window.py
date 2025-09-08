@@ -31,13 +31,14 @@ class ThermalAnalysisView(QMainWindow):
         self.ploss = 1.0  # 默认损耗功率
         self.delta_z = 0.05  # 默认对数间隔
         self.num_iterations = 500  # 默认迭代次数
-        self.discrete_order = 45  # 默认离散阶数
+        self.discrete_order = None  # 用户必须填写离散阶数
         self.precision = 'float64'  # 默认计算精度
         self.results = {}  # 初始化结果字典
         self.data_mode = 'Original Temperature Data'  # 默认数据输入模式
 
         # 创建处理器实例
         self.processor = ThermalAnalysisProcessor(precision=self.precision)
+        # 注意：discrete_order将在用户输入后设置
 
         self.init_ui()
         self.setWindowTitle("Bayesian Deconvolution Thermal Analysis System")
@@ -139,10 +140,21 @@ class ThermalAnalysisView(QMainWindow):
         self.precision_combo.currentTextChanged.connect(self.update_precision)
         precision_layout.addWidget(self.precision_combo)
 
+        # 离散阶数
+        discrete_order_layout = QVBoxLayout()
+        discrete_order_layout.addWidget(QLabel("Discrete Order"))
+        from PyQt5.QtWidgets import QLineEdit
+        self.discrete_order_input = QLineEdit()
+        self.discrete_order_input.setPlaceholderText("Enter discrete order (e.g., 30)")
+        self.discrete_order_input.setText("")  # 初始为空，要求用户填写
+        self.discrete_order_input.textChanged.connect(self.update_discrete_order)
+        discrete_order_layout.addWidget(self.discrete_order_input)
+
         param_layout.addLayout(ploss_layout)
         param_layout.addLayout(ambient_layout)
         param_layout.addLayout(delta_z_layout)
         param_layout.addLayout(precision_layout)
+        param_layout.addLayout(discrete_order_layout)
 
         # 分析按钮
         self.analyze_btn = QPushButton("Start Analysis")
@@ -327,6 +339,20 @@ class ThermalAnalysisView(QMainWindow):
         self.processor = ThermalAnalysisProcessor(precision=self.precision)
         print(f"计算精度已更新为: {precision}")
 
+    def update_discrete_order(self, text):
+        """更新离散阶数"""
+        try:
+            if text.strip():
+                self.discrete_order = int(text.strip())
+                self.processor.discrete_order = self.discrete_order
+                print(f"离散阶数已更新为: {self.discrete_order}")
+            else:
+                self.discrete_order = None
+                print("离散阶数未设置")
+        except ValueError:
+            self.discrete_order = None
+            print("离散阶数格式错误，请输入整数")
+
     def update_mode(self, mode):
         """更新数据输入模式"""
         self.data_mode = mode
@@ -340,6 +366,19 @@ class ThermalAnalysisView(QMainWindow):
     def run_analysis(self):
         """运行分析"""
         if not hasattr(self, 'file_path'):
+            QMessageBox.warning(self, "No File Selected", "Please select a data file first.")
+            return
+
+        # 验证离散阶数是否已设置
+        if self.discrete_order is None:
+            QMessageBox.warning(self, "Discrete Order Required", 
+                              "Please enter a discrete order value before running analysis.")
+            return
+
+        # 验证离散阶数是否为正整数
+        if self.discrete_order <= 0:
+            QMessageBox.warning(self, "Invalid Discrete Order", 
+                              "Discrete order must be a positive integer.")
             return
 
         # 更新进度条
@@ -612,7 +651,7 @@ class ThermalAnalysisView(QMainWindow):
                 ax1.set_ylabel('Integral thermal capacity ∑Cth (Ws/K)', fontsize=10)
                 ax1.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
-                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e5)
+                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e8)
             else:
                 ax1.text(0.5, 0.5, 'no valid data', transform=ax1.transAxes, ha='center', va='center')
                 ax1.set_title('Integral structure function', fontsize=12, fontweight='bold')
@@ -701,6 +740,14 @@ class ThermalAnalysisView(QMainWindow):
         if file_path:
             success = self.processor.import_transfer_function_results(file_path)
             if success:
+                # 更新UI中的离散阶数显示
+                if self.processor.discrete_order is not None:
+                    self.discrete_order_input.setText(str(self.processor.discrete_order))
+                    self.discrete_order = self.processor.discrete_order
+                else:
+                    self.discrete_order_input.setText("")
+                    self.discrete_order = None
+                
                 self.update_transfer_function_display()
                 self.plot_structure_functions()  # 重新绘制结构函数
                 QMessageBox.information(self, "Import Success", 
@@ -776,7 +823,8 @@ class ThermalAnalysisView(QMainWindow):
         display_data.append(('', '', '', ''))  # 空行
         display_data.append(('Calculation Parameters', '', '', ''))
         display_data.append(('Precision', self.processor.precision, '', 'Calculation precision'))
-        display_data.append(('Discrete Order', str(self.processor.discrete_order), '', 'Discrete time constant spectrum order'))
+        discrete_order_display = str(self.processor.discrete_order) if self.processor.discrete_order is not None else "Not set"
+        display_data.append(('Discrete Order', discrete_order_display, '', 'Discrete time constant spectrum order'))
         display_data.append(('Delta z', f"{self.processor.delta_z:.3f}", '', 'Log interval'))
         
         # 填充表格
