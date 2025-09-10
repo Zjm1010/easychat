@@ -785,6 +785,13 @@ class ThermalAnalysisProcessor:
         j = 0
         max_iterations = len(foster_rth)
 
+        # 重复检测相关变量（用于检测趋于零的连续相同无效数值）
+        prev_c_numeric = None
+        prev_r_numeric = None
+        repeat_count = 1
+        repetition_tolerance_abs = 1e-12
+        repetition_tolerance_rel = 1e-6
+
         for i in range(max_iterations):
             try:
                 # 计算并联热容参数
@@ -823,6 +830,34 @@ class ThermalAnalysisProcessor:
                     break
                 cauerRth.append(r)
                 print(f"迭代 {i+1}: 串联热阻 = {r}")
+
+                # 检测并联热容与串联热阻是否连续重复
+                try:
+                    c_numeric = float(c)
+                    r_numeric = float(r)
+
+                    def is_close(x, y):
+                        if x is None or y is None:
+                            return False
+                        abs_tol = repetition_tolerance_abs
+                        rel_tol = repetition_tolerance_rel * max(abs(x), abs(y), 1.0)
+                        return abs(x - y) <= max(abs_tol, rel_tol)
+
+                    if prev_c_numeric is not None and prev_r_numeric is not None and \
+                       is_close(c_numeric, prev_c_numeric) and is_close(r_numeric, prev_r_numeric):
+                        repeat_count += 1
+                    else:
+                        repeat_count = 1
+
+                    prev_c_numeric = c_numeric
+                    prev_r_numeric = r_numeric
+
+                    if repeat_count >= 3:
+                        print("串联热阻与并联热容连续重复3次，提前结束计算")
+                        break
+                except Exception:
+                    # 若数值转换失败，则不进行重复检测
+                    pass
 
                 # 更新复阻抗的分子
                 numZ = sp.expand(numZ - r * denZ)
