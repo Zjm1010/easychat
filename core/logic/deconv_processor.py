@@ -1,14 +1,13 @@
-import sys
-from cmath import log
+import random
 
 import numpy as np
-from scipy.linalg import solve
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QSlider, QLabel, QPushButton, QGroupBox, QSizePolicy)
-from PyQt5.QtCore import Qt
 import pyqtgraph as pg
-import random
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QSlider, QLabel, QPushButton, QGroupBox)
 from scipy.interpolate import interp1d
+from scipy.linalg import solve
+
 
 class BayesianDeconvolutionModel:
     def __init__(self):

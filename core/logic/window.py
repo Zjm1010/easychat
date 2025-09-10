@@ -10,12 +10,36 @@ import os
 import sys
 
 import numpy as np
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QSlider, QLabel, QPushButton, QGroupBox, QFileDialog,
-                             QProgressBar, QTabWidget, QMessageBox, QTableWidgetItem)
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+
+# Qt compatibility (support PyQt5 and PyQt6)
+try:
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+        QSlider, QLabel, QPushButton, QGroupBox, QFileDialog,
+        QProgressBar, QTabWidget, QMessageBox, QTableWidgetItem,
+        QComboBox, QLineEdit, QTextEdit, QSplitter, QTableWidget
+    )
+    from PyQt5.QtGui import QColor
+except ImportError:
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+        QSlider, QLabel, QPushButton, QGroupBox, QFileDialog,
+        QProgressBar, QTabWidget, QMessageBox, QTableWidgetItem,
+        QComboBox, QLineEdit, QTextEdit, QSplitter, QTableWidget
+    )
+    from PyQt6.QtGui import QColor
+
+# Matplotlib unified Qt backend
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+
+# Compatibility aliases for enums/constants
+ALIGN_CENTER = getattr(Qt, 'AlignCenter', getattr(Qt, 'AlignmentFlag').AlignCenter)
+HORIZONTAL = getattr(Qt, 'Horizontal', getattr(Qt, 'Orientation').Horizontal)
+VERTICAL = getattr(Qt, 'Vertical', getattr(Qt, 'Orientation').Vertical)
+LIGHT_GRAY = getattr(Qt, 'lightGray', getattr(Qt, 'GlobalColor').lightGray)
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ''))
 from decov_function import ThermalAnalysisProcessor, setup_fonts, setup_plot_formatting
@@ -55,11 +79,11 @@ class ThermalAnalysisView(QMainWindow):
         # 标题
         title_layout = QVBoxLayout()
         title_label = QLabel("Bayesian Deconvolution Thermal Analysis System")
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(ALIGN_CENTER)
         title_label.setStyleSheet("font-size: 24pt; font-weight: bold; margin: 10px 0;")
 
         subtitle_label = QLabel("Thermal Resistance Extraction and Analysis Based on Structure Function Method")
-        subtitle_label.setAlignment(Qt.AlignCenter)
+        subtitle_label.setAlignment(ALIGN_CENTER)
         subtitle_label.setStyleSheet("font-size: 14pt; color: #666; margin-bottom: 20px;")
 
         title_layout.addWidget(title_label)
@@ -78,7 +102,6 @@ class ThermalAnalysisView(QMainWindow):
         # 数据输入模式选择
         mode_layout = QHBoxLayout()
         mode_layout.addWidget(QLabel("Data Input Mode:"))
-        from PyQt5.QtWidgets import QComboBox
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(['Original Temperature Data', 'Time Constant Spectrum Data'])
         self.mode_combo.currentTextChanged.connect(self.update_mode)
@@ -103,7 +126,7 @@ class ThermalAnalysisView(QMainWindow):
         # 损耗功率
         ploss_layout = QVBoxLayout()
         ploss_layout.addWidget(QLabel("Power Loss (W)"))
-        self.ploss_slider = QSlider(Qt.Horizontal)
+        self.ploss_slider = QSlider(HORIZONTAL)
         self.ploss_slider.setRange(1, 100)
         self.ploss_slider.setValue(10)
         self.ploss_value = QLabel("1.0")
@@ -113,7 +136,7 @@ class ThermalAnalysisView(QMainWindow):
         # 环境温度
         ambient_layout = QVBoxLayout()
         ambient_layout.addWidget(QLabel("Ambient Temperature (°C)"))
-        self.ambient_slider = QSlider(Qt.Horizontal)
+        self.ambient_slider = QSlider(HORIZONTAL)
         self.ambient_slider.setRange(0, 100)
         self.ambient_slider.setValue(25)
         self.ambient_value = QLabel("25.0")
@@ -123,7 +146,7 @@ class ThermalAnalysisView(QMainWindow):
         # 对数间隔
         delta_z_layout = QVBoxLayout()
         delta_z_layout.addWidget(QLabel("Log Interval Δz"))
-        self.delta_z_slider = QSlider(Qt.Horizontal)
+        self.delta_z_slider = QSlider(HORIZONTAL)
         self.delta_z_slider.setRange(1, 100)
         self.delta_z_slider.setValue(5)
         self.delta_z_value = QLabel("0.05")
@@ -133,7 +156,6 @@ class ThermalAnalysisView(QMainWindow):
         # 计算精度
         precision_layout = QVBoxLayout()
         precision_layout.addWidget(QLabel("Calculation Precision"))
-        from PyQt5.QtWidgets import QComboBox
         self.precision_combo = QComboBox()
         self.precision_combo.addItems(['float64', 'float32'])
         self.precision_combo.setCurrentText(self.precision)
@@ -143,7 +165,6 @@ class ThermalAnalysisView(QMainWindow):
         # 离散阶数
         discrete_order_layout = QVBoxLayout()
         discrete_order_layout.addWidget(QLabel("Discrete Order"))
-        from PyQt5.QtWidgets import QLineEdit
         self.discrete_order_input = QLineEdit()
         self.discrete_order_input.setPlaceholderText("Enter discrete order (e.g., 30)")
         self.discrete_order_input.setText("")  # 初始为空，要求用户填写
@@ -274,12 +295,8 @@ class ThermalAnalysisView(QMainWindow):
         """设置传递函数结果标签页"""
         layout = QVBoxLayout(self.tab5)
 
-        # 创建文本显示区域
-        from PyQt5.QtWidgets import QTextEdit, QSplitter, QTableWidget, QTableWidgetItem
-        from PyQt5.QtCore import Qt
-
         # 创建分割器
-        splitter = QSplitter(Qt.Vertical)
+        splitter = QSplitter(VERTICAL)
         
         # 上半部分：参数表格
         self.transfer_table = QTableWidget()
@@ -840,7 +857,7 @@ class ThermalAnalysisView(QMainWindow):
                 for j in range(4):
                     item = self.transfer_table.item(i, j)
                     if item:
-                        item.setBackground(Qt.lightGray)
+                        item.setBackground(LIGHT_GRAY)
                         font = item.font()
                         font.setBold(True)
                         item.setFont(font)
@@ -919,4 +936,4 @@ def create_main_window():
 if __name__ == '__main__':
     window = create_main_window()
     window.show()
-    sys.exit(QApplication.instance().exec_())
+    sys.exit(QApplication.instance().exec())
