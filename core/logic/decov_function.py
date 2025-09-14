@@ -8,7 +8,7 @@ import pandas as pd
 import sympy as sp
 from matplotlib import ticker
 from scipy.interpolate import interp1d
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, butter, filtfilt
 from sympy import Poly, Expr, fraction, expand, together, nsimplify
 from sympy.polys.polyerrors import PolynomialError
 # 配置字体支持
@@ -161,6 +161,7 @@ class ThermalAnalysisProcessor:
         self.Tj = None
         self.Zth_transient = None
         self.ploss = 1.0
+        self.ambient_temp = 0.00655085  # 默认环境温度
         self.delta_z = 0.05
         self.num_iterations = 500
         self.discrete_order = None  # 将由用户设置
@@ -173,7 +174,27 @@ class ThermalAnalysisProcessor:
         else:
             self.dtype = np.float64
 
+        # 滤波器参数设置
+        self.filter_cutoff_freq = 0.1  # 归一化截止频率
+        self.filter_order = 6  # 滤波器阶数
+        self.enable_filter = True  # 是否启用滤波器
+
         print(f"热分析处理器初始化完成，计算精度: {precision}")
+
+    def set_filter_parameters(self, cutoff_freq=0.1, filter_order=6, enable=True):
+        """
+        设置低通滤波器参数
+        
+        Args:
+            cutoff_freq (float): 归一化截止频率 (0~1)，默认为0.1
+            filter_order (int): 滤波器阶数，默认为6
+            enable (bool): 是否启用滤波器，默认为True
+        """
+        self.filter_cutoff_freq = max(0.001, min(0.999, cutoff_freq))  # 限制在合理范围内
+        self.filter_order = max(1, min(20, filter_order))  # 限制阶数范围
+        self.enable_filter = enable
+        
+        print(f"滤波器参数设置: 截止频率={self.filter_cutoff_freq}, 阶数={self.filter_order}, 启用={self.enable_filter}")
 
     def load_data(self, file_path):
         """从Excel文件加载数据 - 支持多种格式"""
@@ -378,10 +399,14 @@ class ThermalAnalysisProcessor:
             print(f"Alternative loading error: {e}")
             return False
 
-    def calculate_zth(self, ambient_temp=25.0):
+    def calculate_zth(self, ambient_temp=None):
         """计算瞬态热阻抗"""
         if self.t0 is None or self.Tj is None:
             return False
+
+        # 使用传入的环境温度或实例的环境温度
+        if ambient_temp is None:
+            ambient_temp = self.ambient_temp
 
         self.Zth_transient = ((self.Tj - ambient_temp) / self.ploss).astype(self.dtype)
         return True
@@ -450,7 +475,14 @@ class ThermalAnalysisProcessor:
             return False
 
         z_bayesian = self.results['z_bayesian']
-        az_bayesian = self.results['az_bayesian']
+        
+        # 优先使用滤波后的信号，如果不存在则使用原始信号
+        if 'az_bayesian_filtered' in self.results:
+            az_bayesian = self.results['az_bayesian_filtered']
+            print("使用滤波后的az_bayesian信号计算导数")
+        else:
+            az_bayesian = self.results['az_bayesian']
+            print("使用原始az_bayesian信号计算导数")
 
         # 计算导数
         dz_bayesian = np.diff(z_bayesian).astype(self.dtype)
@@ -479,6 +511,64 @@ class ThermalAnalysisProcessor:
 
         self.results['wz_bayesian'] = wz_bayesian
         return True
+
+    def apply_lowpass_filter(self, cutoff_freq=None, filter_order=None):
+        """
+        对az_bayesian信号应用低通滤波器 - MATLAB风格实现
+        
+        Args:
+            cutoff_freq (float, optional): 归一化截止频率 (0~1)，如果为None则使用实例设置
+            filter_order (int, optional): 滤波器阶数，如果为None则使用实例设置
+            
+        Returns:
+            bool: 是否成功应用滤波器
+        """
+        # 如果滤波器被禁用，直接返回
+        if not self.enable_filter:
+            print("滤波器已禁用，跳过滤波步骤")
+            return True
+            
+        if 'az_bayesian' not in self.results:
+            print("错误: 没有找到az_bayesian数据，请先执行对数插值")
+            return False
+        
+        # 使用传入参数或实例参数
+        cutoff_freq = cutoff_freq if cutoff_freq is not None else self.filter_cutoff_freq
+        filter_order = filter_order if filter_order is not None else self.filter_order
+        
+        az_bayesian = self.results['az_bayesian']
+        
+        # 检查数据有效性
+        if len(az_bayesian) < filter_order * 2:
+            print(f"警告: 数据点数量({len(az_bayesian)})不足以应用{filter_order}阶滤波器")
+            print("跳过滤波步骤")
+            return True
+        
+        try:
+            # 设计Butterworth低通滤波器 - 等效于MATLAB的butter函数
+            b, a = butter(filter_order, cutoff_freq, btype='low', analog=False)
+            
+            # 应用零相位滤波 - 等效于MATLAB的filtfilt函数
+            filtered_az = filtfilt(b, a, az_bayesian).astype(self.dtype)
+            
+            # 保存滤波后的结果
+            self.results['az_bayesian_filtered'] = filtered_az
+            self.results['filter_params'] = {
+                'cutoff_freq': cutoff_freq,
+                'filter_order': filter_order,
+                'filter_type': 'butterworth_lowpass'
+            }
+            
+            print(f"低通滤波完成: 截止频率={cutoff_freq}, 阶数={filter_order}")
+            print(f"原始信号范围: {az_bayesian.min():.2e} - {az_bayesian.max():.2e}")
+            print(f"滤波后信号范围: {filtered_az.min():.2e} - {filtered_az.max():.2e}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"低通滤波失败: {e}")
+            print("跳过滤波步骤，使用原始信号")
+            return True  # 返回True以避免中断整个流程
 
     def bayesian_deconvolution(self):
         """贝叶斯反卷积计算时间常数谱"""
@@ -1294,14 +1384,18 @@ class ThermalAnalysisProcessor:
 
         return True
 
-    def full_analysis(self, file_path, ambient_temp=25.0):
+    def full_analysis(self, file_path, ambient_temp=None):
         """执行完整分析流程"""
         self.results = {}
 
         if not self.load_data(file_path):
             return False
 
-        if not self.calculate_zth(ambient_temp):
+        # 使用传入的环境温度或实例的环境温度
+        if ambient_temp is not None:
+            self.ambient_temp = ambient_temp
+
+        if not self.calculate_zth():
             return False
 
         if not self.logarithmic_interpolation():
@@ -1312,6 +1406,9 @@ class ThermalAnalysisProcessor:
 
         if not self.calculate_weight_function():
             return False
+
+        # 应用低通滤波器（可选步骤）
+        self.apply_lowpass_filter()
 
         if not self.bayesian_deconvolution():
             return False
@@ -1526,4 +1623,58 @@ class ThermalAnalysisProcessor:
             
         except Exception as e:
             print(f"导入传递函数结果时出错: {e}")
+            return False
+
+    def export_filtered_signal(self, file_path):
+        """导出滤波后的信号数据到Excel文件"""
+        try:
+            if 'az_bayesian_filtered' not in self.results:
+                print("警告: 没有找到滤波后的信号数据")
+                return False
+            
+            # 准备导出数据
+            export_data = {}
+            
+            # 基本信号数据
+            if 'z_bayesian' in self.results:
+                export_data['z_bayesian'] = self.results['z_bayesian']
+            if 'az_bayesian' in self.results:
+                export_data['az_bayesian_original'] = self.results['az_bayesian']
+            if 'az_bayesian_filtered' in self.results:
+                export_data['az_bayesian_filtered'] = self.results['az_bayesian_filtered']
+            
+            # 滤波器参数
+            if 'filter_params' in self.results:
+                filter_params = self.results['filter_params']
+                export_data['filter_cutoff_freq'] = [filter_params['cutoff_freq']] * len(export_data['z_bayesian'])
+                export_data['filter_order'] = [filter_params['filter_order']] * len(export_data['z_bayesian'])
+                export_data['filter_type'] = [filter_params['filter_type']] * len(export_data['z_bayesian'])
+            
+            # 创建DataFrame
+            df = pd.DataFrame(export_data)
+            
+            # 保存到Excel文件
+            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Filtered_Signal', index=False)
+                
+                # 添加滤波器信息工作表
+                if 'filter_params' in self.results:
+                    filter_info = {
+                        'Parameter': ['Cutoff_Frequency', 'Filter_Order', 'Filter_Type', 'Enable_Filter'],
+                        'Value': [
+                            filter_params['cutoff_freq'],
+                            filter_params['filter_order'],
+                            filter_params['filter_type'],
+                            self.enable_filter
+                        ]
+                    }
+                    filter_df = pd.DataFrame(filter_info)
+                    filter_df.to_excel(writer, sheet_name='Filter_Info', index=False)
+            
+            print(f"滤波信号数据已导出到: {file_path}")
+            print(f"导出的数据点数量: {len(export_data['z_bayesian'])}")
+            return True
+            
+        except Exception as e:
+            print(f"导出滤波信号时出错: {e}")
             return False

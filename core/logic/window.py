@@ -12,6 +12,7 @@ import sys
 import numpy as np
 
 # Qt compatibility (support PyQt5 and PyQt6)
+QT_VERSION = None
 try:
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import (
@@ -21,18 +22,40 @@ try:
         QComboBox, QLineEdit, QTextEdit, QSplitter, QTableWidget
     )
     from PyQt5.QtGui import QColor
+    QT_VERSION = 5
+    print("Using PyQt5")
 except ImportError:
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import (
-        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-        QSlider, QLabel, QPushButton, QGroupBox, QFileDialog,
-        QProgressBar, QTabWidget, QMessageBox, QTableWidgetItem,
-        QComboBox, QLineEdit, QTextEdit, QSplitter, QTableWidget
-    )
-    from PyQt6.QtGui import QColor
+    try:
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+            QSlider, QLabel, QPushButton, QGroupBox, QFileDialog,
+            QProgressBar, QTabWidget, QMessageBox, QTableWidgetItem,
+            QComboBox, QLineEdit, QTextEdit, QSplitter, QTableWidget
+        )
+        from PyQt6.QtGui import QColor
+        QT_VERSION = 6
+        print("Using PyQt6")
+    except ImportError:
+        raise ImportError("Neither PyQt5 nor PyQt6 is available. Please install PyQt5 or PyQt6.")
 
-# Matplotlib unified Qt backend
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+# Matplotlib backend configuration
+import matplotlib
+try:
+    if QT_VERSION == 5:
+        matplotlib.use('Qt5Agg')
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+    else:
+        matplotlib.use('QtAgg')
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    print(f"Matplotlib backend set to: {matplotlib.get_backend()}")
+except Exception as e:
+    print(f"Warning: Could not set Qt backend for matplotlib: {e}")
+    # Fallback to a non-interactive backend
+    matplotlib.use('Agg')
+    from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+    print("Using fallback matplotlib backend: Agg")
+
 from matplotlib.figure import Figure
 
 # Compatibility aliases for enums/constants
@@ -136,12 +159,12 @@ class ThermalAnalysisView(QMainWindow):
         # 环境温度
         ambient_layout = QVBoxLayout()
         ambient_layout.addWidget(QLabel("Ambient Temperature (°C)"))
-        self.ambient_slider = QSlider(HORIZONTAL)
-        self.ambient_slider.setRange(0, 100)
-        self.ambient_slider.setValue(25)
-        self.ambient_value = QLabel("25.0")
-        ambient_layout.addWidget(self.ambient_slider)
-        ambient_layout.addWidget(self.ambient_value)
+        self.ambient_input = QLineEdit()
+        self.ambient_input.setPlaceholderText("Enter ambient temperature (e.g., 25.0)")
+        self.ambient_input.setText("0.00655085")  # 设置默认值
+        self.ambient_input.setToolTip("Enter ambient temperature in Celsius. Values < 1.0 will use float64 precision, values ≥ 1.0 will use float32 precision.")
+        self.ambient_input.textChanged.connect(self.update_ambient_temp)
+        ambient_layout.addWidget(self.ambient_input)
 
         # 对数间隔
         delta_z_layout = QVBoxLayout()
@@ -248,7 +271,6 @@ class ThermalAnalysisView(QMainWindow):
 
         # 连接信号
         self.ploss_slider.valueChanged.connect(self.update_ploss_value)
-        self.ambient_slider.valueChanged.connect(self.update_ambient_value)
         self.delta_z_slider.valueChanged.connect(self.update_delta_z_value)
 
     def setup_tab1(self):
@@ -338,10 +360,61 @@ class ThermalAnalysisView(QMainWindow):
         self.ploss_value.setText(f"{ploss:.1f}")
         self.processor.ploss = ploss
 
-    def update_ambient_value(self, value):
-        """更新环境温度值"""
-        self.ambient_value.setText(f"{value}")
-        self.ambient_temp = value
+    def update_ambient_temp(self, text):
+        """更新环境温度值并自动切换计算精度"""
+        try:
+            if text.strip():
+                # 解析输入的温度值
+                ambient_temp = float(text.strip())
+                
+                # 验证温度值的合理性
+                if ambient_temp < -273.15:
+                    QMessageBox.warning(self, "Invalid Temperature", 
+                                      "Temperature cannot be below absolute zero (-273.15°C)")
+                    return
+                elif ambient_temp > 1000:
+                    QMessageBox.warning(self, "Invalid Temperature", 
+                                      "Temperature seems too high (>1000°C). Please check your input.")
+                    return
+                
+                self.ambient_temp = ambient_temp
+                
+                # 自动切换计算精度
+                if ambient_temp < 1.0:
+                    # 对于很小的温度值，使用float64精度
+                    new_precision = 'float64'
+                else:
+                    # 对于正常温度值，使用float32精度
+                    new_precision = 'float32'
+                
+                # 如果精度发生变化，更新处理器
+                if new_precision != self.precision:
+                    self.precision = new_precision
+                    self.precision_combo.setCurrentText(new_precision)
+                    self.processor = ThermalAnalysisProcessor(precision=self.precision)
+                    # 同步环境温度到处理器
+                    self.processor.ambient_temp = self.ambient_temp
+                    print(f"环境温度: {ambient_temp}°C, 自动切换计算精度为: {new_precision}")
+                else:
+                    # 同步环境温度到处理器
+                    self.processor.ambient_temp = self.ambient_temp
+                    print(f"环境温度已更新为: {ambient_temp}°C")
+                    
+            else:
+                # 如果输入为空，重置为默认值
+                self.ambient_temp = 0.00655085
+                self.processor.ambient_temp = self.ambient_temp
+                print("环境温度输入为空，使用默认值: 0.00655085°C")
+                
+        except ValueError:
+            # 如果输入格式错误，显示警告但保持当前值
+            print("环境温度输入格式错误，请输入有效的数值")
+            QMessageBox.warning(self, "Invalid Input", 
+                              "Please enter a valid number for ambient temperature.")
+        except Exception as e:
+            print(f"更新环境温度时发生错误: {e}")
+            QMessageBox.warning(self, "Error", 
+                              f"An error occurred while updating ambient temperature: {str(e)}")
 
     def update_delta_z_value(self, value):
         """更新对数间隔值"""
@@ -354,6 +427,8 @@ class ThermalAnalysisView(QMainWindow):
         self.precision = precision
         # 重新创建处理器实例以应用新的精度设置
         self.processor = ThermalAnalysisProcessor(precision=self.precision)
+        # 同步环境温度到处理器
+        self.processor.ambient_temp = self.ambient_temp
         print(f"计算精度已更新为: {precision}")
 
     def update_discrete_order(self, text):
@@ -407,7 +482,9 @@ class ThermalAnalysisView(QMainWindow):
             success = self.processor.analysis_from_time_constant_spectrum(self.file_path)
         else:
             # 从原始温度数据开始完整分析
-            success = self.processor.full_analysis(self.file_path, self.ambient_temp)
+            # 更新处理器的环境温度
+            self.processor.ambient_temp = self.ambient_temp
+            success = self.processor.full_analysis(self.file_path)
 
         if success:
             self.progress_bar.setValue(100)
@@ -450,6 +527,9 @@ class ThermalAnalysisView(QMainWindow):
             except Exception as e:
                 print(f"设置图表格式时出错: {e}")
 
+            # 自动调整y轴精度
+            self._adjust_y_axis_precision(ax, self.processor.Tj)
+
             # 添加网格
             ax.grid(True, linestyle='--', alpha=0.7)
 
@@ -486,6 +566,8 @@ class ThermalAnalysisView(QMainWindow):
                 ax1.set_ylabel('a(z) = Zth(t=exp(z))', fontsize=12)
                 ax1.set_title('Log Time Axis Data', fontsize=14, fontweight='bold')
             setup_plot_formatting(ax1)
+            # 自动调整y轴精度
+            self._adjust_y_axis_precision(ax1, self.processor.results['az_fft'])
             ax1.grid(True, linestyle='--', alpha=0.7)
 
             if 'z_bayesian' in self.processor.results and 'az_bayesian' in self.processor.results:
@@ -500,6 +582,8 @@ class ThermalAnalysisView(QMainWindow):
                     ax2.set_ylabel('Interpolated a(z)', fontsize=12)
                     ax2.set_title('Interpolated Log Time Data', fontsize=14, fontweight='bold')
                 setup_plot_formatting(ax2)
+                # 自动调整y轴精度
+                self._adjust_y_axis_precision(ax2, self.processor.results['az_bayesian'])
                 ax2.grid(True, linestyle='--', alpha=0.7)
         elif 'z_bayesian' in self.processor.results and 'R' in self.processor.results:
             # 从时间常数谱数据开始的情况
@@ -514,6 +598,8 @@ class ThermalAnalysisView(QMainWindow):
                 ax.set_ylabel('R(z)', fontsize=12)
                 ax.set_title('Imported Time Constant Spectrum', fontsize=14, fontweight='bold')
             setup_plot_formatting(ax)
+            # 自动调整y轴精度
+            self._adjust_y_axis_precision(ax, self.processor.results['R'])
             ax.grid(True, linestyle='--', alpha=0.7)
         else:
             # 如果没有数据，显示提示信息
@@ -567,6 +653,8 @@ class ThermalAnalysisView(QMainWindow):
                 setup_plot_formatting(ax1)
                 # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
                 ax1.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
+                # 自动调整y轴精度
+                self._adjust_y_axis_precision(ax1, az_bayesian)
                 ax1.grid(True, linestyle='--', alpha=0.7)
 
                 # 绘制导数
@@ -585,6 +673,8 @@ class ThermalAnalysisView(QMainWindow):
                     ax2.set_ylabel('da(z)/dz', fontsize=10)
                 ax2.legend(fontsize=9)
                 setup_plot_formatting(ax2)
+                # 自动调整y轴精度（使用平滑后的导数数据）
+                self._adjust_y_axis_precision(ax2, da_dz_bayesian_smoothed)
                 ax2.grid(True, linestyle='--', alpha=0.7)
 
                 # 绘制时间常数谱
@@ -602,6 +692,8 @@ class ThermalAnalysisView(QMainWindow):
                 setup_plot_formatting(ax3)
                 # 在setup_plot_formatting之后重新设置横轴格式，确保不被覆盖
                 ax3.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
+                # 自动调整y轴精度
+                self._adjust_y_axis_precision(ax3, R)
                 ax3.grid(True, linestyle='--', alpha=0.7)
             else:
                 # 只有时间常数谱数据（从文件导入）
@@ -632,6 +724,8 @@ class ThermalAnalysisView(QMainWindow):
                 
                 setup_plot_formatting(ax)
                 ax.xaxis.set_major_formatter(ticker.FuncFormatter(sci_formatter_x))
+                # 自动调整y轴精度
+                self._adjust_y_axis_precision(ax, R)
                 ax.grid(True, linestyle='--', alpha=0.7)
         else:
             # 如果没有数据，显示提示信息
@@ -727,6 +821,202 @@ class ThermalAnalysisView(QMainWindow):
 
         self.fig4.tight_layout()
         self.canvas4.draw()
+
+    def _adjust_y_axis_precision(self, ax, data):
+        """
+        根据数据范围自动调整y轴精度，特别优化对数函数图表的显示
+        动态扩展小数位直到能够区分y轴坐标
+        
+        Args:
+            ax: matplotlib轴对象
+            data: 数据数组
+        """
+        try:
+            import matplotlib.ticker as ticker
+            
+            # 过滤有效数据
+            valid_data = data[np.isfinite(data)]
+            if len(valid_data) == 0:
+                return
+            
+            # 计算数据范围
+            data_min = np.min(valid_data)
+            data_max = np.max(valid_data)
+            data_range = data_max - data_min
+            
+            # 计算相对精度（数据范围相对于数据大小的比例）
+            data_magnitude = max(abs(data_min), abs(data_max))
+            if data_magnitude > 0:
+                relative_range = data_range / data_magnitude
+            else:
+                relative_range = data_range
+            
+            # 动态确定所需的小数位数
+            def find_required_precision(values, max_precision=15):
+                """
+                找到能够区分所有值所需的最小小数位数
+                """
+                if len(values) <= 1:
+                    return 2
+                
+                # 尝试不同的小数位数
+                for precision in range(2, max_precision + 1):
+                    formatted_values = [f'{v:.{precision}e}' for v in values]
+                    if len(set(formatted_values)) == len(values):
+                        return precision
+                
+                return max_precision
+            
+            # 获取y轴刻度位置
+            ax.locator_params(axis='y', nbins=8)
+            y_ticks = ax.get_yticks()
+            
+            # 过滤有效的刻度值
+            valid_ticks = y_ticks[np.isfinite(y_ticks)]
+            if len(valid_ticks) > 1:
+                # 计算刻度值范围
+                tick_min = np.min(valid_ticks)
+                tick_max = np.max(valid_ticks)
+                tick_range = tick_max - tick_min
+                
+                # 如果刻度范围很小，需要更多精度
+                if tick_range < 1e-10:
+                    required_precision = find_required_precision(valid_ticks, 15)
+                elif tick_range < 1e-6:
+                    required_precision = find_required_precision(valid_ticks, 12)
+                elif tick_range < 1e-3:
+                    required_precision = find_required_precision(valid_ticks, 8)
+                else:
+                    required_precision = 4
+            else:
+                # 如果没有有效刻度，使用数据范围来确定精度
+                if data_range < 1e-10:
+                    required_precision = 12
+                elif data_range < 1e-6:
+                    required_precision = 8
+                elif data_range < 1e-3:
+                    required_precision = 6
+                else:
+                    required_precision = 4
+            
+            # 根据数据范围和相对精度选择格式
+            if data_range < 1e-15 or relative_range < 1e-12:
+                # 极小范围数据，使用动态精度科学计数法
+                def formatter(x, pos):
+                    if abs(x) < 1e-10:
+                        return f'{x:.{max(required_precision, 8)}e}'
+                    else:
+                        return f'{x:.{max(required_precision, 6)}e}'
+                ax.yaxis.set_major_formatter(ticker.FuncFormatter(formatter))
+            elif data_range < 1e-12 or relative_range < 1e-9:
+                # 极小范围数据，使用动态精度科学计数法
+                def formatter(x, pos):
+                    if abs(x) < 1e-8:
+                        return f'{x:.{max(required_precision, 6)}e}'
+                    else:
+                        return f'{x:.{max(required_precision, 4)}e}'
+                ax.yaxis.set_major_formatter(ticker.FuncFormatter(formatter))
+            elif data_range < 1e-9 or relative_range < 1e-6:
+                # 小范围数据，使用动态精度科学计数法
+                ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+                    lambda x, p: f'{x:.{max(required_precision, 4)}e}'))
+            elif data_range < 1e-6 or relative_range < 1e-3:
+                # 小范围数据，使用动态精度科学计数法
+                ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+                    lambda x, p: f'{x:.{max(required_precision, 3)}e}'))
+            elif data_range < 1e-3 or relative_range < 1e-1:
+                # 中等范围数据，使用动态精度
+                if data_magnitude < 1:
+                    ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+                        lambda x, p: f'{x:.{max(required_precision, 2)}e}'))
+                else:
+                    ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+                        lambda x, p: f'{x:.{max(required_precision, 6)}f}'))
+            elif data_range < 1 or relative_range < 0.1:
+                # 较大范围数据，使用动态精度固定小数
+                ax.yaxis.set_major_formatter(ticker.FuncFormatter(
+                    lambda x, p: f'{x:.{max(required_precision, 4)}f}'))
+            else:
+                # 大范围数据，使用科学计数法
+                ax.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+                ax.ticklabel_format(style='scientific', axis='y', scilimits=(0, 0))
+ 
+            # 设置y轴刻度数量，确保有足够的精度
+            # 对于小范围数据，增加刻度数量以显示更多细节
+            if data_range < 1e-6:
+                ax.locator_params(axis='y', nbins=10)  # 更多刻度
+            elif data_range < 1e-3:
+                ax.locator_params(axis='y', nbins=8)   # 标准刻度
+            else:
+                ax.locator_params(axis='y', nbins=6)   # 较少刻度
+            
+            # 验证刻度是否能够区分
+            self._verify_tick_distinction(ax, data)
+            
+        except Exception as e:
+            print(f"调整y轴精度时出错: {e}")
+            # 如果出错，使用默认的科学计数法
+            try:
+                ax.ticklabel_format(style='scientific', axis='y', scilimits=(0, 0))
+            except:
+                pass
+
+    def _verify_tick_distinction(self, ax, data):
+        """
+        验证y轴刻度是否能够区分，如果不能则增加精度
+        
+        Args:
+            ax: matplotlib轴对象
+            data: 数据数组
+        """
+        try:
+            import matplotlib.ticker as ticker
+            
+            # 获取当前刻度标签
+            y_ticks = ax.get_yticks()
+            valid_ticks = y_ticks[np.isfinite(y_ticks)]
+            
+            if len(valid_ticks) <= 1:
+                return
+            
+            # 获取当前格式化器
+            formatter = ax.yaxis.get_major_formatter()
+            
+            # 检查刻度标签是否重复
+            tick_labels = [formatter.format_data(tick) for tick in valid_ticks]
+            unique_labels = set(tick_labels)
+            
+            # 如果标签重复，增加精度
+            if len(unique_labels) < len(valid_ticks):
+                # 找到当前使用的精度
+                current_precision = 4
+                if hasattr(formatter, 'func') and hasattr(formatter.func, '__code__'):
+                    # 尝试从格式化函数中提取精度
+                    import re
+                    func_str = str(formatter.func)
+                    match = re.search(r'\.(\d+)e', func_str)
+                    if match:
+                        current_precision = int(match.group(1))
+                
+                # 逐步增加精度直到能够区分
+                for precision in range(current_precision + 1, 20):
+                    def new_formatter(x, pos):
+                        if 'e' in str(formatter.func):
+                            return f'{x:.{precision}e}'
+                        else:
+                            return f'{x:.{precision}f}'
+                    
+                    ax.yaxis.set_major_formatter(ticker.FuncFormatter(new_formatter))
+                    
+                    # 重新检查是否能够区分
+                    new_tick_labels = [new_formatter(tick, None) for tick in valid_ticks]
+                    new_unique_labels = set(new_tick_labels)
+                    
+                    if len(new_unique_labels) == len(valid_ticks):
+                        break
+                        
+        except Exception as e:
+            print(f"验证刻度区分时出错: {e}")
 
     def export_results(self):
         """导出传递函数计算结果"""
