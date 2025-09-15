@@ -412,7 +412,7 @@ class ThermalAnalysisProcessor:
         return True
 
     def logarithmic_interpolation(self):
-        """对时间轴取对数并进行插值"""
+        """对时间轴取对数并进行插值 - 与MATLAB的interp1(t0,Zth_transient,exp(z_bayesian),'spline')方法一致"""
         if self.t0 is None or self.Zth_transient is None:
             return False
 
@@ -435,17 +435,21 @@ class ThermalAnalysisProcessor:
             print("Error: 去除重复值后数据点不足")
             return False
 
-        # 步骤1: 时间轴取对数（现在安全了）
+        # 步骤1: 时间轴取对数
         z_fft = np.log(t0_unique)
 
-        # 步骤2: 创建插值函数（使用线性插值避免重复值问题）
+        # 步骤2: 创建插值函数（使用三次样条插值，与MATLAB的'spline'方法一致）
         try:
-            interp_func = interp1d(t0_unique, Zth_unique, kind='linear', fill_value='extrapolate')
+            interp_func = interp1d(t0_unique, Zth_unique, kind='cubic', fill_value='extrapolate')
         except:
-            # 如果还有问题，使用最简单的线性插值
-            interp_func = interp1d(t0_unique, Zth_unique, kind='linear',
-                                   fill_value=(Zth_unique[0], Zth_unique[-1]),
-                                   bounds_error=False)
+            # 如果三次样条插值失败，尝试线性插值作为备选
+            try:
+                interp_func = interp1d(t0_unique, Zth_unique, kind='linear', fill_value='extrapolate')
+            except:
+                # 最后的备选方案
+                interp_func = interp1d(t0_unique, Zth_unique, kind='linear',
+                                       fill_value=(Zth_unique[0], Zth_unique[-1]),
+                                       bounds_error=False)
 
         # 步骤3: 计算 a(z) = Zth(t=exp(z))
         az_fft = interp_func(np.exp(z_fft))
@@ -455,8 +459,6 @@ class ThermalAnalysisProcessor:
         z_bayesian = np.arange(-9.2, z_end + self.delta_z, self.delta_z, dtype=self.dtype)
         t_bayesian = np.exp(z_bayesian).astype(self.dtype)
 
-        # 确保插值范围在有效数据范围内
-        t_bayesian = t_bayesian[(t_bayesian >= t0_unique[0]) & (t_bayesian <= t0_unique[-1])]
         az_bayesian = interp_func(t_bayesian).astype(self.dtype)
         z_bayesian = np.log(t_bayesian).astype(self.dtype)
 
@@ -466,7 +468,7 @@ class ThermalAnalysisProcessor:
         self.results['t_bayesian'] = t_bayesian
         self.results['az_bayesian'] = az_bayesian
 
-        print(f"对数插值完成: 原始数据点 {len(self.t0)}, 有效数据点 {len(t0_unique)}, 插值数据点 {len(t_bayesian)}")
+        print(f"对数插值完成 (使用三次样条插值): 原始数据点 {len(self.t0)}, 有效数据点 {len(t0_unique)}, 插值数据点 {len(t_bayesian)}")
         return True
 
     def calculate_derivative(self):
@@ -1401,14 +1403,14 @@ class ThermalAnalysisProcessor:
         if not self.logarithmic_interpolation():
             return False
 
+        # 应用低通滤波器（可选步骤）
+        self.apply_lowpass_filter()
+
         if not self.calculate_derivative():
             return False
 
         if not self.calculate_weight_function():
             return False
-
-        # 应用低通滤波器（可选步骤）
-        self.apply_lowpass_filter()
 
         if not self.bayesian_deconvolution():
             return False

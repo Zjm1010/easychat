@@ -74,7 +74,7 @@ class ThermalAnalysisView(QMainWindow):
     def __init__(self):
         super().__init__()
         # 初始化属性
-        self.ambient_temp = 25.0  # 默认环境温度
+        self.ambient_temp = 0.00655085  # 默认环境温度
         self.ploss = 1.0  # 默认损耗功率
         self.delta_z = 0.05  # 默认对数间隔
         self.num_iterations = 500  # 默认迭代次数
