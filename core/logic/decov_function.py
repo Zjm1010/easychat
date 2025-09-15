@@ -583,41 +583,37 @@ class ThermalAnalysisProcessor:
         da_dz_bayesian = self.results['da_dz_bayesian_smoothed']
         wz_bayesian = self.results['wz_bayesian']
 
-        # 确保数组长度匹配
-        if len(da_dz_bayesian) != len(z_bayesian) - 1:
-            print(f"警告: da_dz_bayesian长度({len(da_dz_bayesian)})与预期长度({len(z_bayesian) - 1})不匹配")
-            # 调整数组长度
-            min_len = min(len(da_dz_bayesian), len(z_bayesian) - 1)
-            da_dz_bayesian = da_dz_bayesian[:min_len]
-            z_bayesian = z_bayesian[:min_len + 1]
-            wz_bayesian = wz_bayesian[:min_len + 1]
-            print(f"调整数组长度到: da_dz_bayesian={len(da_dz_bayesian)}, z_bayesian={len(z_bayesian)}")
-
-        # 生成权重函数矩阵
+        # 生成权重函数矩阵（确保维度与导数长度一致）
         n = len(da_dz_bayesian)
-        W = np.zeros((n, n), dtype=self.dtype)
+        z_bayesian = np.asarray(z_bayesian).ravel()
+        z_for_weight = z_bayesian[:n]
+        z_col = z_for_weight[:, None]  # (n, 1)
+        z_row = z_for_weight[None, :]  # (1, n)
+        diff_matrix = z_col - z_row
+        weight = np.exp(diff_matrix - np.exp(diff_matrix))  # (n, n)
 
-        for i in range(n):
-            for j in range(n):
-                W[i, j] = np.exp(z_bayesian[i] - z_bayesian[j] - np.exp(z_bayesian[i] - z_bayesian[j]))
-
-        # 初始化R
-        R = (da_dz_bayesian / np.sum(da_dz_bayesian)).astype(self.dtype)
+        # 初始化R（使用一维数组以便矩阵运算）
+        total_sum = np.sum(da_dz_bayesian)
+        if total_sum == 0 or not np.isfinite(total_sum):
+            return False
+        resistance = da_dz_bayesian / total_sum # (n,)
 
         # 迭代计算
         for iter in range(self.num_iterations):
-            conv_w_R = W @ R
-            xcorr_w_right = W.T @ (da_dz_bayesian / conv_w_R)
-            R = R * xcorr_w_right
+            conv_w_R = weight @ resistance  # (n,)
+            # 避免除零
+            conv_w_R = np.where(conv_w_R == 0, np.finfo(self.dtype).eps, conv_w_R)
+            xcorr_w_right = weight.T @ (da_dz_bayesian / conv_w_R)  # (n,)
+            resistance = resistance * xcorr_w_right  # (n,)
 
-        self.results['R'] = R
+        self.results['R'] = resistance.astype(self.dtype)
         # 同时保存对应的z_bayesian（用于后续计算）
-        self.results['z_bayesian_for_R'] = z_bayesian[:n]
+        self.results['z_bayesian_for_R'] = z_for_weight
 
         return True
 
-    def discrete_time_constant_spectrum(self):
-        """时间常数谱离散化 - 改进版本"""
+    def  discrete_time_constant_spectrum(self):
+        """时间常数谱离散化 - 严格遵循MATLAB计算逻辑"""
         if ('z_bayesian' not in self.results or
                 'R' not in self.results):
             return False
@@ -651,89 +647,78 @@ class ThermalAnalysisProcessor:
                 print("错误: 无法处理数组长度不匹配")
                 return False
 
-        # 过滤掉无效的R值
-        valid_mask = (R > 0) & np.isfinite(R)
-        if not np.any(valid_mask):
-            print("警告: 没有有效的时间常数谱数据")
-            return False
+        z_valid = z_bayesian
+        R_valid = R
 
-        z_valid = z_bayesian[valid_mask]
-        R_valid = R[valid_mask]
+        # 严格遵循MATLAB逻辑：基于阶数进行区间划分
+        # delta_z = (z_bayesian(end) - z_bayesian(1)) / N
+        z_start = z_valid[0]
+        z_end = z_valid[-1]
+        N = self.discrete_order
+        
+        # MATLAB: delta_z = (z_bayesian(end) - z_bayesian(1)) / N
+        delta_z_matlab = (z_end - z_start) / N
+        
+        # MATLAB: z_discrete = [-9.2:delta_z:Z_end]
+        # 注意：MATLAB代码中的Z_end应该是z_end
+        z_discrete = np.arange(-9.2, z_end + delta_z_matlab, delta_z_matlab, dtype=self.dtype)
+        
+        # 确保离散点数正确
+        if len(z_discrete) > N + 1:
+            z_discrete = z_discrete[:N+1]
+        elif len(z_discrete) < N + 1:
+            # 如果不够，补足到N+1个点
+            z_discrete = np.linspace(-9.2, z_end, N+1, dtype=self.dtype)
 
-        # 改进：使用更智能的区间划分方法
-        # 基于R值的分布进行自适应区间划分
-        R_cumsum = np.cumsum(R_valid)
-        R_total = R_cumsum[-1]
+        # 初始化Foster数据 - 严格遵循MATLAB逻辑
+        fosterRth = np.zeros(N, dtype=self.dtype)
+        fosterCth = np.zeros(N, dtype=self.dtype)
+        tau_Foster = np.zeros(N, dtype=self.dtype)
 
-        # 创建区间边界
-        interval_boundaries = []
-        current_sum = 0
-        target_sum = R_total / self.discrete_order
+        # 计算DELTA_Z - 原始z_bayesian的间隔
+        DELTA_Z = np.mean(np.diff(z_valid))
+        
+        # Foster网络参数计算 - 严格遵循MATLAB逻辑
+        for i in range(N):
+            # MATLAB: fosterRth(i) = sum(R(fix((i-1)*delta_z/DELTA_Z+1):fix(i*delta_z/DELTA_Z)))*DELTA_Z
+            # Python索引从0开始，所以需要调整
+            start_idx = int(np.floor((i) * delta_z_matlab / DELTA_Z))  # i-1 -> i (0-based)
+            end_idx = int(np.floor((i+1) * delta_z_matlab / DELTA_Z))
+            
+            # 确保索引在有效范围内
+            start_idx = max(0, min(start_idx, len(R_valid) - 1))
+            end_idx = max(start_idx + 1, min(end_idx, len(R_valid)))
+            
+            # 计算该区间内的总热阻
+            interval_R_sum = np.sum(R_valid[start_idx:end_idx]) * DELTA_Z
+            fosterRth[i] = interval_R_sum
+            
+            # MATLAB: fosterCth(i) = exp(z_bayesian(1)+(i-0.5)*delta_z)/fosterRth(i)
+            # 注意：i-0.5 对应于第i个区间的中心点
+            if fosterRth[i] > 0:
+                fosterCth[i] = np.exp(z_start + (i + 0.5) * delta_z_matlab) / fosterRth[i]
+                tau_Foster[i] = fosterRth[i] * fosterCth[i]
+            else:
+                fosterCth[i] = 0
+                tau_Foster[i] = 0
 
-        for i, r_val in enumerate(R_valid):
-            current_sum += r_val
-            if current_sum >= target_sum and len(interval_boundaries) < self.discrete_order - 1:
-                interval_boundaries.append(i)
-                current_sum = 0
 
-        # 确保有足够的区间
-        if len(interval_boundaries) < self.discrete_order - 1:
-            # 如果区间不够，使用均匀划分
-            step = len(R_valid) // self.discrete_order
-            interval_boundaries = [i * step for i in range(1, self.discrete_order)]
+        # 只保留有效参数
+        self.results['fosterRth'] = fosterRth
+        self.results['fosterCth'] = fosterCth
+        self.results['tau_Foster'] = tau_Foster
+        
+        # 保存离散化相关数据用于调试
+        self.results['z_discrete'] = z_discrete
+        self.results['delta_z_matlab'] = delta_z_matlab
+        self.results['DELTA_Z'] = DELTA_Z
 
-        # 添加起始和结束边界
-        interval_boundaries = [0] + interval_boundaries + [len(R_valid)]
-
-        # Foster网络参数计算
-        fosterRth = []
-        fosterCth = []
-        tau_Foster = []
-
-        for i in range(len(interval_boundaries) - 1):
-            start_idx = interval_boundaries[i]
-            end_idx = interval_boundaries[i + 1]
-
-            if end_idx > start_idx:
-                # 计算该区间内的总热阻
-                interval_R = np.sum(R_valid[start_idx:end_idx]) * self.delta_z
-
-                if interval_R > 0:
-                    # 计算该区间的平均时间常数
-                    z_interval = z_valid[start_idx:end_idx]
-                    tau_interval = np.exp(z_interval)
-
-                    # 使用加权平均计算时间常数
-                    weights = R_valid[start_idx:end_idx]
-                    tau_weighted = np.average(tau_interval, weights=weights)
-
-                    # 计算对应的热容
-                    interval_C = tau_weighted / interval_R
-
-                    # 验证热容的合理性
-                    if interval_C > 0 and np.isfinite(interval_C):
-                        fosterRth.append(interval_R)
-                        fosterCth.append(interval_C)
-                        tau_Foster.append(interval_R * interval_C)
-
-        # 转换为numpy数组
-        fosterRth = np.array(fosterRth, dtype=self.dtype)
-        fosterCth = np.array(fosterCth, dtype=self.dtype)
-        tau_Foster = np.array(tau_Foster, dtype=self.dtype)
-
-        # 过滤掉零值和负值
-        valid_foster_mask = (fosterRth > 0) & (fosterCth > 0) & np.isfinite(fosterRth) & np.isfinite(fosterCth)
-        if not np.any(valid_foster_mask):
-            print("警告: 没有生成有效的Foster网络参数")
-            return False
-
-        self.results['fosterRth'] = fosterRth[valid_foster_mask]
-        self.results['fosterCth'] = fosterCth[valid_foster_mask]
-        self.results['tau_Foster'] = tau_Foster[valid_foster_mask]
-
-        print(f"改进的Foster网络参数计算完成: {np.sum(valid_foster_mask)} 个有效参数")
-        print(f"热阻范围: {fosterRth[valid_foster_mask].min():.2e} - {fosterRth[valid_foster_mask].max():.2e} K/W")
-        print(f"热容范围: {fosterCth[valid_foster_mask].min():.2e} - {fosterCth[valid_foster_mask].max():.2e} Ws/K")
+        print(f"MATLAB逻辑Foster网络参数计算完成: {np.sum} 个参数")
+        print(f"离散阶数N: {N}")
+        print(f"delta_z: {delta_z_matlab:.6f}")
+        print(f"DELTA_Z: {DELTA_Z:.6f}")
+        print(f"热阻范围: {fosterRth.min():.2e} - {fosterRth.max():.2e} K/W")
+        print(f"热容范围: {fosterCth.min():.2e} - {fosterCth.max():.2e} Ws/K")
         return True
 
     def calc_parallel_c(self, s, numy, deny):
@@ -1165,13 +1150,9 @@ class ThermalAnalysisProcessor:
             cauerCth = cauerCth[:min_len]
 
         # 过滤掉零值、负值和无效值
-        valid_mask = (cauerRth > 0) & (cauerCth > 0) & np.isfinite(cauerRth) & np.isfinite(cauerCth)
-        if not np.any(valid_mask):
-            print("警告: 没有有效的Cauer网络参数用于结构函数计算")
-            return False
 
-        cauerRth_valid = cauerRth[valid_mask]
-        cauerCth_valid = cauerCth[valid_mask]
+        cauerRth_valid = cauerRth
+        cauerCth_valid = cauerCth
 
         # Cauer网络的结构函数计算 - 基于Matlab代码逻辑
         # 积分结构函数计算
