@@ -838,19 +838,27 @@ class ThermalAnalysisProcessor:
         foster_cth = self.results['fosterCth']
         s = sp.symbols('s')
 
-        # 计算复阻抗 Z(s)
+        # 计算复阻抗 Z(s) - 使用有限精度的有理数运算
         Zs = 0
         for i in range(len(foster_rth)):
-            Zs += foster_rth[i] / (1 + foster_rth[i] * foster_cth[i] * s)
+            # 将浮点数转换为有理数进行精确计算，但限制精度以避免过大的整数
+            r_rational = sp.Rational(foster_rth[i]).limit_denominator(10**12)  # 限制分母不超过10^12
+            c_rational = sp.Rational(foster_cth[i]).limit_denominator(10**12)  # 限制分母不超过10^12
+            Zs += r_rational / (1 + r_rational * c_rational * s)
 
         # 计算复导纳 Y(s)
         Ys = 1 / Zs
 
         # 提取 Y(s) 的分子和分母多项式
         try:
+            # 使用修改后的normalized_numden方法，确保与MATLAB结果一致
             numY, denY = self.normalized_numden(Ys, s, tol=1e-50)
-            numY = sp.collect(numY, s)  # 简化分子
-            denY = sp.collect(denY, s)  # 简化分母
+            # 进一步化简，确保结果为整数系数
+            numY = sp.simplify(numY)
+            denY = sp.simplify(denY)
+            # 收集相同幂次的项
+            numY = sp.collect(numY, s)
+            denY = sp.collect(denY, s)
         except Exception as e:
             print(f"提取分子分母多项式时出错: {e}")
             return False
@@ -1011,9 +1019,9 @@ class ThermalAnalysisProcessor:
                 return False
 
     @staticmethod
-    def normalized_numden(expr: Expr, s, tol=1e-50) -> (Expr, Expr):
+    def normalized_numden(expr: Expr, s, tol=1e-12) -> (Expr, Expr):
         """
-        规范化提取分子分母，特别处理高次小系数多项式
+        规范化提取分子分母，特别处理高次小系数多项式，使其结果与MATLAB一致
 
         参数：
         expr: SymPy表达式
@@ -1021,23 +1029,36 @@ class ThermalAnalysisProcessor:
         tol: 系数截断阈值
 
         返回：
-        (num, den): 分子和分母表达式
+        (num, den): 分子和分母表达式（化简后无小数）
         """
         try:
-            # 1. 数值稳定化处理
-            expr = nsimplify(expr, rational=True)  # 尝试转换为有理数
-            expr = expr.evalf()  # 转换为浮点数表达式
+            # 1. 保持符号形式，优先使用整数运算
+            expr = sp.simplify(expr)
+            expr = sp.together(expr)
 
-            # 2. 展开并规范化表达式
-            expr = expand(expr)
-            expr = together(expr)
-
-            # 3. 安全提取分子分母
+            # 2. 安全提取分子分母
             if expr.is_rational_function():
-                num, den = fraction(expr)
+                num, den = sp.fraction(expr)
             else:
                 num = expr
                 den = sp.Integer(1)
+
+            # 3. 转换为有理数，避免浮点小数，并限制精度
+            def limit_rational_precision(expr, max_denominator=10**12):
+                """限制有理数表达式的精度，避免过大的整数"""
+                if isinstance(expr, sp.Rational):
+                    return expr.limit_denominator(max_denominator)
+                elif hasattr(expr, 'atoms'):
+                    for rat in expr.atoms(sp.Rational):
+                        limited_rat = rat.limit_denominator(max_denominator)
+                        expr = expr.subs(rat, limited_rat)
+                return expr
+
+            # 限制分子分母的精度
+            num = sp.nsimplify(num, rational=True)
+            den = sp.nsimplify(den, rational=True)
+            num = limit_rational_precision(num)
+            den = limit_rational_precision(den)
 
             # 4. 系数截断处理
             def truncate_coeffs(poly_expr, var):
@@ -1046,7 +1067,7 @@ class ThermalAnalysisProcessor:
                     return poly_expr
 
                 # 转换为多项式并处理系数
-                poly = Poly(poly_expr, var)
+                poly = sp.Poly(poly_expr, var)
                 coeffs = poly.all_coeffs()
 
                 # 截断极小系数
@@ -1056,11 +1077,12 @@ class ThermalAnalysisProcessor:
                 ]
 
                 # 重建多项式
-                return sum(
+                result = sum(
                     c * var ** i
                     for i, c in enumerate(reversed(truncated_coeffs))
                     if c != 0
                 )
+                return limit_rational_precision(result)  # 再次限制精度
 
             # 应用截断
             num = truncate_coeffs(num, s)
@@ -1068,21 +1090,55 @@ class ThermalAnalysisProcessor:
 
             # 5. 对分母进行首项系数规范化
             try:
-                den_poly = Poly(den, s)
+                den_poly = sp.Poly(den, s)
                 if den_poly.is_zero:
                     raise ValueError("分母不能为零")
 
                 lc = den_poly.LC()
                 if lc != 1 and lc != 0:
-                    num = num / lc
-                    den = den / lc
-            except PolynomialError:
+                    # 避免除以小数，使用有理数化简
+                    num = sp.Rational(1, lc) * num
+                    den = sp.Rational(1, lc) * den
+                    # 限制结果的精度
+                    num = limit_rational_precision(num)
+                    den = limit_rational_precision(den)
+            except sp.PolynomialError:
                 # 非多项式分母，跳过规范化
                 pass
+
+            # 6. 进一步化简，确保结果为整数系数
+            num = sp.simplify(num)
+            den = sp.simplify(den)
+            # 限制结果的精度
+            num = limit_rational_precision(num)
+            den = limit_rational_precision(den)
+
+            # 7. 确保分子分母没有共同因子（类似MATLAB的最简形式）
+            gcd = sp.gcd(num, den)
+            if gcd != 1 and gcd != 0:
+                num = num / gcd
+                den = den / gcd
+                # 限制结果的精度
+                num = limit_rational_precision(num)
+                den = limit_rational_precision(den)
 
             return num, den
 
         except Exception as e:
+            # 如果整数过大导致错误，尝试使用数值计算作为备选
+            if "Exceeds the limit" in str(e):
+                print("警告: 整数过大，尝试使用数值计算作为备选")
+                try:
+                    # 提取数值系数进行计算
+                    expr = expr.evalf()
+                    if expr.is_rational_function():
+                        num, den = sp.fraction(expr)
+                    else:
+                        num = expr
+                        den = sp.Integer(1)
+                    return num, den
+                except:
+                    pass
             raise RuntimeError(f"提取分子分母时出错: {str(e)}\n表达式: {expr}") from e
 
     def calculate_structure_functions(self):
