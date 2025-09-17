@@ -1044,7 +1044,7 @@ class ThermalAnalysisProcessor:
                 den = sp.Integer(1)
 
             # 3. 转换为有理数，避免浮点小数，并限制精度
-            def limit_rational_precision(expr, max_denominator=10**12):
+            def limit_rational_precision(expr, max_denominator=10**20):
                 """限制有理数表达式的精度，避免过大的整数"""
                 if isinstance(expr, sp.Rational):
                     return expr.limit_denominator(max_denominator)
@@ -1085,8 +1085,8 @@ class ThermalAnalysisProcessor:
                 return limit_rational_precision(result)  # 再次限制精度
 
             # 应用截断
-            num = truncate_coeffs(num, s)
-            den = truncate_coeffs(den, s)
+            # num = truncate_coeffs(num, s)
+            # den = truncate_coeffs(den, s)
 
             # 5. 对分母进行首项系数规范化
             try:
@@ -1205,8 +1205,6 @@ class ThermalAnalysisProcessor:
             cauerRth = cauerRth[:min_len]
             cauerCth = cauerCth[:min_len]
 
-        # 过滤掉零值、负值和无效值
-
         cauerRth_valid = cauerRth
         cauerCth_valid = cauerCth
 
@@ -1220,60 +1218,35 @@ class ThermalAnalysisProcessor:
             # 计算相邻积分值的差值
             diff_cumulative_Rth = np.diff(cumulative_Rth)
             diff_cumulative_Cth = np.diff(cumulative_Cth)
-
-            # 计算微分结构函数
-            # 注意：避免除零错误
-            valid_diff_mask = diff_cumulative_Rth > 0
-            if np.any(valid_diff_mask):
-                # 使用正确的数组长度
-                differential_Cth = np.zeros(len(diff_cumulative_Rth))
-                differential_Rth = np.zeros(len(diff_cumulative_Rth))
-
-                # 对于有效差值，计算微分热容
-                differential_Cth[valid_diff_mask] = diff_cumulative_Cth[valid_diff_mask] / diff_cumulative_Rth[
-                    valid_diff_mask]
-                differential_Rth[valid_diff_mask] = cumulative_Rth[:-1][valid_diff_mask]  # 使用前n-1个积分热阻值
-
-                # 过滤掉无效值
-                valid_differential_mask = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(
-                    differential_Rth) & np.isfinite(differential_Cth)
-                if np.any(valid_differential_mask):
-                    differential_Rth = differential_Rth[valid_differential_mask]
-                    differential_Cth = differential_Cth[valid_differential_mask]
-                else:
-                    # 如果没有有效微分值，使用原始Cauer参数作为备选
-                    differential_Rth = cauerRth_valid
-                    differential_Cth = cauerCth_valid
-            else:
-                # 如果没有有效差值，使用原始Cauer参数
-                differential_Rth = cauerRth_valid
-                differential_Cth = cauerCth_valid
+             # 对于有效差值，计算微分热容
+            differential_Cth = diff_cumulative_Cth / diff_cumulative_Rth
+            differential_Rth = cumulative_Rth[:-1]  # 使用前n-1个积分热阻值
         else:
             # 如果只有一个数据点，则没有微分值
             differential_Rth = np.array([])
             differential_Cth = np.array([])
 
         # 去掉最后几个热容特别大的层（如果存在）
-        if len(cumulative_Cth) > 4:
-            # 计算热容的阈值（例如：超过平均值的10倍）
-            mean_Cth = np.mean(cumulative_Cth)
-            threshold = mean_Cth * 10
-
-            # 找到需要保留的索引
-            valid_indices = cumulative_Cth <= threshold
-
-            if np.sum(valid_indices) < len(cumulative_Cth):
-                print(f"去掉了 {len(cumulative_Cth) - np.sum(valid_indices)} 个热容过大的层")
-                cumulative_Rth = cumulative_Rth[valid_indices]
-                cumulative_Cth = cumulative_Cth[valid_indices]
-
-                # 同时更新微分结构函数
-                if len(differential_Rth) > 0:
-                    # 确保微分结构函数的长度与积分结构函数匹配
-                    max_valid_index = np.max(np.where(valid_indices)[0])
-                    if max_valid_index < len(differential_Rth):
-                        differential_Rth = differential_Rth[:max_valid_index]
-                        differential_Cth = differential_Cth[:max_valid_index]
+        # if len(cumulative_Cth) > 4:
+        #     # 计算热容的阈值（例如：超过平均值的10倍）
+        #     mean_Cth = np.mean(cumulative_Cth)
+        #     threshold = mean_Cth * 10
+        #
+        #     # 找到需要保留的索引
+        #     valid_indices = cumulative_Cth <= threshold
+        #
+        #     if np.sum(valid_indices) < len(cumulative_Cth):
+        #         print(f"去掉了 {len(cumulative_Cth) - np.sum(valid_indices)} 个热容过大的层")
+        #         cumulative_Rth = cumulative_Rth[valid_indices]
+        #         cumulative_Cth = cumulative_Cth[valid_indices]
+        #
+        #         # 同时更新微分结构函数
+        #         if len(differential_Rth) > 0:
+        #             # 确保微分结构函数的长度与积分结构函数匹配
+        #             max_valid_index = np.max(np.where(valid_indices)[0])
+        #             if max_valid_index < len(differential_Rth):
+        #                 differential_Rth = differential_Rth[:max_valid_index]
+        #                 differential_Cth = differential_Cth[:max_valid_index]
 
         # 保存结果 - 直接保存处理后的数组，不再使用valid_mask索引
         self.results['cumulative_Rth'] = cumulative_Rth
@@ -1336,13 +1309,10 @@ class ThermalAnalysisProcessor:
             return False
 
         # 过滤掉零值、负值和无效值
-        valid_mask = (cauerRth > 0) & (cauerCth > 0) & np.isfinite(cauerRth) & np.isfinite(cauerCth)
-        if not np.any(valid_mask):
-            print("警告: 没有有效的Cauer网络参数用于结构函数计算")
-            return False
 
-        cauerRth_valid = cauerRth[valid_mask]
-        cauerCth_valid = cauerCth[valid_mask]
+
+        cauerRth_valid = cauerRth
+        cauerCth_valid = cauerCth
         # Cauer网络的结构函数计算 - 基于Matlab代码逻辑
         # 积分结构函数计算
         cumulative_Rth = np.cumsum(cauerRth_valid).astype(self.dtype)
@@ -1353,33 +1323,9 @@ class ThermalAnalysisProcessor:
         diff_cumulative_Rth = np.diff(cumulative_Rth)
         diff_cumulative_Cth = np.diff(cumulative_Cth)
 
-        # 计算微分结构函数
-        # 注意：避免除零错误
-        valid_diff_mask = diff_cumulative_Rth > 0
-        if np.any(valid_diff_mask):
-            # 使用正确的数组长度
-            differential_Cth = np.zeros(len(diff_cumulative_Rth))
-            differential_Rth = np.zeros(len(diff_cumulative_Rth))
-
-            # 对于有效差值，计算微分热容
-            differential_Cth[valid_diff_mask] = diff_cumulative_Cth[valid_diff_mask] / diff_cumulative_Rth[
-                valid_diff_mask]
-            differential_Rth[valid_diff_mask] = cumulative_Rth[:-1][valid_diff_mask]
-
-            # 过滤掉无效值
-            valid_differential_mask = (differential_Rth > 0) & (differential_Cth > 0) & np.isfinite(
-                differential_Rth) & np.isfinite(differential_Cth)
-            if np.any(valid_differential_mask):
-                differential_Rth = differential_Rth[valid_differential_mask]
-                differential_Cth = differential_Cth[valid_differential_mask]
-            else:
-                # 如果没有有效微分值，使用原始Cauer参数作为备选
-                differential_Rth = cauerRth_valid
-                differential_Cth = cauerCth_valid
-        else:
-            # 如果没有有效差值，使用原始Cauer参数
-            differential_Rth = cauerRth_valid
-            differential_Cth = cauerCth_valid
+        # 对于有效差值，计算微分热容
+        differential_Cth = diff_cumulative_Cth / diff_cumulative_Rth
+        differential_Rth = cumulative_Rth[:-1]
 
         # 去掉最后几个热容特别大的层（如果存在）
         if len(cumulative_Cth) > 4:
