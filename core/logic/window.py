@@ -762,7 +762,7 @@ class ThermalAnalysisView(QMainWindow):
                 ax1.set_ylabel('Integral thermal capacity ∑Cth (Ws/K)', fontsize=10)
                 ax1.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
-                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e8)
+                ax1.set_ylim(bottom=ax1.get_ylim()[0], top=1e12)
             else:
                 ax1.text(0.5, 0.5, 'no valid data', transform=ax1.transAxes, ha='center', va='center')
                 ax1.set_title('Integral structure function', fontsize=12, fontweight='bold')
@@ -790,7 +790,7 @@ class ThermalAnalysisView(QMainWindow):
                 ax2.set_ylabel('thermal capacity Cth (Ws/K)', fontsize=10)
                 ax2.grid(True, linestyle='--', alpha=0.7)
                 # 设置纵坐标最大值为10^65
-                ax2.set_ylim(bottom=ax2.get_ylim()[0], top=1e12)
+                ax2.set_ylim(bottom=ax2.get_ylim()[0], top=1e18)
             else:
                 ax2.text(0.5, 0.5, 'no valid data', transform=ax2.transAxes, ha='center', va='center')
                 ax2.set_title('Differential structure function', fontsize=12, fontweight='bold')
